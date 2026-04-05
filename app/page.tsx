@@ -26,7 +26,7 @@ export default function Home() {
     setMessages(newMsgs)
     setLoading(true)
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch('http://54.92.139.128:8002/coach/chat', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
