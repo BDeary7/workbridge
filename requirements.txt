@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+httpx
+twilio
+stripe
+python-jose
+python-multipart
