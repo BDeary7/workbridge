@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const res = await fetch('http://54.92.139.128:8002/coach/chat', {
+  const res = await fetch('https://workbridge-api.onrender.com/coach/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
