@@ -16,7 +16,11 @@ export default function Home() {
   const dark = '#080C12'
   const white = '#F0F4F8'
 
-  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'})},[messages])
+  useEffect(()=>{
+  // Wake up Render on page load
+  fetch('https://workbridge-api.onrender.com/health').catch(()=>{})
+  bottomRef.current?.scrollIntoView({behavior:'smooth'})
+},[messages])
 
   const sendMessage = async () => {
     const text = input.trim()
