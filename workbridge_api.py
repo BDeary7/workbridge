@@ -311,15 +311,24 @@ async def get_balance(request: Request):
 async def coach_chat(req: CoachRequest):
     if not ANTHROPIC_API_KEY:
         return {"reply": "Coach Ray is coming soon! Visit workbridge-rho.vercel.app to get started."}
-    async with httpx.AsyncClient() as client:
-        res = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type":"application/json","x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},
-            json={"model":"claude-haiku-4-5-20251001","max_tokens":400,
-                  "system":f"You are Coach Ray, WorkBridge's AI career coach. Keep responses SHORT (2-3 sentences). Help with job searching, GED prep, interview tips, and career advancement. Be warm and encouraging. Respond in {'Spanish' if req.language=='es' else 'English'}.",
-                  "messages":req.messages},
-            timeout=15
-        )
-        data = res.json()
-    reply = data.get("content",[])[0].get("text","Let me help you find work!") if data.get("content") else "Let me help you find work!"
-    return {"reply": reply}
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"Content-Type":"application/json","x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},
+                json={"model":"claude-haiku-4-5-20251001","max_tokens":400,
+                      "system":f"You are Coach Ray, WorkBridge's AI career coach. Keep responses SHORT (2-3 sentences max). Help with job searching, GED prep, interview tips, and career advancement. Be warm, encouraging, and direct. Respond in {'Spanish' if req.language=='es' else 'English'}.",
+                      "messages":req.messages},
+                timeout=30
+            )
+            data = res.json()
+            if data.get("content"):
+                reply = data["content"][0].get("text", "I'm here to help! Ask me anything about jobs or your GED.")
+            elif data.get("error"):
+                error_msg = data["error"].get("message", "Unknown error")
+                reply = f"DEBUG ERROR: {error_msg}"
+            else:
+                reply = f"DEBUG: Unexpected response: {str(data)[:200]}"
+            return {"reply": reply}
+    except Exception as e:
+        return {"reply": f"DEBUG EXCEPTION: {str(e)}"}
