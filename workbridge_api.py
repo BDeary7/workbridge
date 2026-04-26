@@ -380,3 +380,38 @@ async def reset_password(req: ResetPasswordRequest):
     conn.commit()
     conn.close()
     return {"message": "Password reset successfully", "token": new_token}
+
+class ProfileSaveRequest(BaseModel):
+    mission: str
+    answers: dict
+    timestamp: Optional[str] = None
+
+@app.post("/coach/save-profile")
+async def save_profile(req: ProfileSaveRequest, request: Request):
+    user = get_user(request)
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER, mission TEXT, answers TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )""")
+    conn.execute("INSERT INTO user_profiles (user_id, mission, answers) VALUES (?,?,?)",
+        (user["id"], req.mission, json.dumps(req.answers)))
+    conn.commit()
+    conn.close()
+    return {"status": "saved", "mission": req.mission}
+
+@app.get("/coach/profiles")
+async def get_profiles(request: Request):
+    user = get_user(request)
+    conn = get_db()
+    conn.execute("""CREATE TABLE IF NOT EXISTS user_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, mission TEXT, answers TEXT,
+        created_at TEXT DEFAULT (datetime('now')))""")
+    rows = conn.execute(
+        "SELECT * FROM user_profiles WHERE user_id=? ORDER BY created_at DESC",
+        (user["id"],)).fetchall()
+    conn.close()
+    return {"profiles": [{"mission":r["mission"],"answers":json.loads(r["answers"]),"created_at":r["created_at"]} for r in rows]}
