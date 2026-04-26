@@ -344,3 +344,39 @@ async def coach_chat(req: CoachRequest):
             return {"reply": reply}
     except Exception as e:
         return {"reply": f"DEBUG EXCEPTION: {str(e)}"}
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+@app.post("/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    conn = get_db()
+    user = conn.execute("SELECT id FROM users WHERE email=?", (req.email,)).fetchone()
+    if user:
+        # Generate reset token
+        reset_token = secrets.token_hex(16)
+        conn.execute("UPDATE users SET api_token=? WHERE email=?", (reset_token, req.email))
+        conn.commit()
+        # In production send email — for now return token directly
+        conn.close()
+        return {"message": f"Reset token: {reset_token} — use POST /auth/reset-password", "token": reset_token}
+    conn.close()
+    return {"message": "If that email exists, a reset link has been sent."}
+
+@app.post("/auth/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    conn = get_db()
+    user = conn.execute("SELECT id FROM users WHERE api_token=?", (req.token,)).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(400, "Invalid or expired reset token")
+    new_token = secrets.token_hex(32)
+    conn.execute("UPDATE users SET password_hash=?, api_token=? WHERE id=?",
+        (hash_password(req.new_password), new_token, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"message": "Password reset successfully", "token": new_token}
