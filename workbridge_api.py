@@ -60,7 +60,7 @@ init_db()
 class RegisterRequest(BaseModel):
     name: str
     email: str
-    phone: Optional[str] = None
+    phone: str
     password: str
     language: Optional[str] = "en"
 

@@ -49,7 +49,7 @@ export default function Login() {
         localStorage.setItem('wb_name', name)
         router.push('/dashboard')
       } else {
-        setError(data.detail || 'Could not create account')
+        setError(data.detail === 'Email already registered' ? 'That email already has an account — try Log In instead' : 'Could not create account')
       }
     } catch { setError('Connection error — please try again') }
     setLoading(false)
