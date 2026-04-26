@@ -12,7 +12,7 @@ GOOGLE_PLACES_KEY  = os.getenv("GOOGLE_PLACES_KEY", "")
 STRIPE_SECRET_KEY  = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
-DB_PATH = "/tmp/workbridge.db"
+DB_PATH = "/data/workbridge.db"
 
 app = FastAPI(title="WorkBridge API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
