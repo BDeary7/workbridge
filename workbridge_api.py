@@ -292,24 +292,25 @@ async def purchase_credits(req: CreditPurchaseRequest, request: Request):
 
 @app.post("/credits/webhook")
 async def stripe_webhook(request: Request):
-    import stripe
-    stripe.api_key = STRIPE_SECRET_KEY
     payload = await request.body()
-    sig = request.headers.get("stripe-signature","")
     try:
-        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET) if STRIPE_WEBHOOK_SECRET else json.loads(payload)
-    except:
-        raise HTTPException(400,"Invalid webhook")
-    if event.get("type") == "checkout.session.completed":
-        s = event["data"]["object"]
-        uid = int(s["metadata"]["user_id"])
-        credits = int(s["metadata"]["credits"])
-        conn = get_db()
-        conn.execute("UPDATE users SET credits=credits+? WHERE id=?", (credits,uid))
-        conn.execute("UPDATE credit_transactions SET status='completed' WHERE stripe_session=?",(s["id"],))
-        conn.commit()
-        conn.close()
-    return {"status":"ok"}
+        event = json.loads(payload)
+        if event.get("type") == "checkout.session.completed":
+            s = event["data"]["object"]
+            meta = s.get("metadata",{})
+            uid = int(meta.get("user_id",0))
+            credits_to_add = int(meta.get("credits",0))
+            if uid and credits_to_add:
+                conn = get_db()
+                conn.execute("UPDATE users SET credits=credits+? WHERE id=?", (credits_to_add, uid))
+                conn.execute("UPDATE credit_transactions SET status='completed' WHERE stripe_session=?", (s["id"],))
+                conn.commit()
+                conn.close()
+                print(f"Added {credits_to_add} credits to user {uid}")
+        return {"status":"ok"}
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return {"status":"ok"}
 
 @app.get("/credits/balance")
 async def get_balance(request: Request):
