@@ -353,6 +353,24 @@ export default function Dashboard(){
     }catch{}
   }
 
+  const buyCredits = async(amount:number)=>{
+    const t = tok()
+    if(!t){router.push('/login');return}
+    try{
+      const res = await fetch(`${API}/credits/purchase`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
+        body:JSON.stringify({credits:amount})
+      })
+      const d = await res.json()
+      if(d.checkout_url){
+        window.location.href = d.checkout_url
+      } else {
+        alert(d.message||'Stripe not configured yet')
+      }
+    }catch{alert('Connection error — try again')}
+  }
+
   const sendChat = async()=>{
     const text = inp.trim()
     if(!text||loading)return
@@ -603,7 +621,7 @@ export default function Dashboard(){
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:14}}>
                     <span style={{color:A,fontWeight:800,fontSize:16}}>{p}</span>
-                    <button className="b" style={{padding:'9px 20px',borderRadius:100,border:'none',background:`linear-gradient(135deg,${A},#D97706)`,color:D,fontWeight:800,fontSize:13,cursor:'pointer'}}>Buy</button>
+                    <button className="b" onClick={()=>buyCredits(parseInt(String(c)))} style={{padding:'9px 20px',borderRadius:100,border:'none',background:`linear-gradient(135deg,${A},#D97706)`,color:D,fontWeight:800,fontSize:13,cursor:'pointer'}}>Buy</button>
                   </div>
                 </div>
               ))}
