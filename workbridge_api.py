@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
-import sqlite3, hashlib, secrets, json, os, asyncio, httpx
+import sqlite3, hashlib, secrets, json, os, asyncio, httpx, re
+from urllib.parse import quote_plus
 
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN", "")
@@ -142,6 +143,164 @@ async def login(req: LoginRequest):
     conn.close()
     return {"token": token, "user_id": user["id"], "name": user["name"], "credits": user["credits"]}
 
+
+async def scrape_yellowpages(category: str, location: str, client: httpx.AsyncClient) -> list:
+    """Scrape Yellow Pages for real businesses with phone numbers"""
+    results = []
+    try:
+        url = f"https://www.yellowpages.com/search?search_terms={quote_plus(category)}&geo_location_terms={quote_plus(location)}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        }
+        resp = await client.get(url, headers=headers, follow_redirects=True)
+        if resp.status_code == 200:
+            html = resp.text
+            # Extract business names
+            names = re.findall(r'class="business-name"[^>]*><span[^>]*>([^<]+)<', html)
+            phones = re.findall(r'class="phones phone primary"[^>]*>([^<]+)<', html)
+            addresses = re.findall(r'class="street-address"[^>]*>([^<]+)<', html)
+            localities = re.findall(r'class="locality"[^>]*>([^<]+)<', html)
+            for i, name in enumerate(names[:15]):
+                phone = phones[i] if i < len(phones) else ""
+                addr_parts = []
+                if i < len(addresses): addr_parts.append(addresses[i].strip())
+                if i < len(localities): addr_parts.append(localities[i].strip())
+                if phone and name:
+                    results.append({
+                        "name": name.strip(),
+                        "phone": phone.strip(),
+                        "address": ", ".join(addr_parts) if addr_parts else location,
+                        "source": "YellowPages"
+                    })
+    except Exception as e:
+        print(f"YellowPages scrape error: {e}")
+    return results
+
+async def scrape_whitepages_biz(category: str, location: str, client: httpx.AsyncClient) -> list:
+    """Scrape WhitePages business listings"""
+    results = []
+    try:
+        url = f"https://www.whitepages.com/business/{quote_plus(category)}/{quote_plus(location)}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        }
+        resp = await client.get(url, headers=headers, follow_redirects=True)
+        if resp.status_code == 200:
+            html = resp.text
+            names = re.findall(r'"name":\s*"([^"]+)"', html)
+            phones = re.findall(r'"telephone":\s*"([^"]+)"', html)
+            addresses = re.findall(r'"streetAddress":\s*"([^"]+)"', html)
+            for i, name in enumerate(names[:10]):
+                phone = phones[i] if i < len(phones) else ""
+                addr = addresses[i] if i < len(addresses) else location
+                if name and len(name) > 2:
+                    results.append({
+                        "name": name.strip(),
+                        "phone": phone.strip() if phone else "",
+                        "address": addr.strip(),
+                        "source": "WhitePages"
+                    })
+    except Exception as e:
+        print(f"WhitePages scrape error: {e}")
+    return results
+
+async def scrape_indeed_jobs(position: str, location: str, client: httpx.AsyncClient) -> list:
+    """Scrape Indeed for employers actively hiring"""
+    results = []
+    try:
+        url = f"https://www.indeed.com/jobs?q={quote_plus(position)}&l={quote_plus(location)}&limit=20"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        resp = await client.get(url, headers=headers, follow_redirects=True)
+        if resp.status_code == 200:
+            html = resp.text
+            companies = re.findall(r'"companyName":\s*"([^"]+)"', html)
+            locations = re.findall(r'"formattedLocation":\s*"([^"]+)"', html)
+            seen = set()
+            for i, company in enumerate(companies[:15]):
+                if company not in seen:
+                    seen.add(company)
+                    loc = locations[i] if i < len(locations) else location
+                    results.append({
+                        "name": company.strip(),
+                        "phone": "",
+                        "address": loc.strip(),
+                        "source": "Indeed",
+                        "hiring": True
+                    })
+    except Exception as e:
+        print(f"Indeed scrape error: {e}")
+    return results
+
+async def scrape_ziprecruiter(position: str, location: str, client: httpx.AsyncClient) -> list:
+    """Scrape ZipRecruiter for hiring employers"""
+    results = []
+    try:
+        url = f"https://www.ziprecruiter.com/jobs-search?search={quote_plus(position)}&location={quote_plus(location)}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        }
+        resp = await client.get(url, headers=headers, follow_redirects=True)
+        if resp.status_code == 200:
+            html = resp.text
+            companies = re.findall(r'"hiring_company":\s*\{[^}]*"name":\s*"([^"]+)"', html)
+            locations_found = re.findall(r'"location":\s*"([^"]+)"', html)
+            seen = set()
+            for i, company in enumerate(companies[:15]):
+                if company not in seen:
+                    seen.add(company)
+                    loc = locations_found[i] if i < len(locations_found) else location
+                    results.append({
+                        "name": company.strip(),
+                        "phone": "",
+                        "address": loc.strip(),
+                        "source": "ZipRecruiter",
+                        "hiring": True
+                    })
+    except Exception as e:
+        print(f"ZipRecruiter scrape error: {e}")
+    return results
+
+async def scrape_craigslist_jobs(position: str, zip_code: str, client: httpx.AsyncClient) -> list:
+    """Scrape Craigslist job postings for employer names"""
+    results = []
+    city_map = {
+        "949": "orangecounty", "310": "losangeles", "213": "losangeles",
+        "212": "newyork", "312": "chicago", "713": "houston",
+        "602": "phoenix", "215": "philadelphia", "210": "sanantonio",
+        "619": "sandiego", "214": "dallas", "408": "sfbay",
+    }
+    area_code = zip_code[:3]
+    city = city_map.get(area_code, "sfbay")
+    try:
+        url = f"https://{city}.craigslist.org/search/jjj?query={quote_plus(position)}"
+        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+        resp = await client.get(url, headers=headers, follow_redirects=True)
+        if resp.status_code == 200:
+            html = resp.text
+            titles = re.findall(r'class="titlestring">([^<]+)<', html)
+            seen = set()
+            for title in titles[:10]:
+                # Extract company from job title
+                parts = title.split(" at ")
+                company = parts[-1].strip() if len(parts) > 1 else title.strip()
+                if company and company not in seen and len(company) > 3:
+                    seen.add(company)
+                    results.append({
+                        "name": company,
+                        "phone": "",
+                        "address": f"{zip_code} area",
+                        "source": "Craigslist",
+                        "hiring": True
+                    })
+    except Exception as e:
+        print(f"Craigslist error: {e}")
+    return results
+
 @app.post("/search/businesses")
 async def search_businesses(req: SearchRequest, request: Request):
     user = get_user(request)
@@ -158,7 +317,37 @@ async def search_businesses(req: SearchRequest, request: Request):
 
     async with httpx.AsyncClient(timeout=10) as client:
 
-        # SOURCE 1: OpenStreetMap Nominatim (FREE, no key)
+        # SOURCE 1: Yellow Pages scraper (FREE)
+        if len(businesses) < 20:
+            yp_results = await scrape_yellowpages(req.category, req.zip_code, client)
+            for b in yp_results:
+                await add_biz(b["name"], b["phone"], b["address"], req.category, 4.2, "YellowPages")
+
+        # SOURCE 2: White Pages Business (FREE)
+        if len(businesses) < 20:
+            wp_results = await scrape_whitepages_biz(req.category, req.zip_code, client)
+            for b in wp_results:
+                await add_biz(b["name"], b["phone"], b["address"], req.category, 4.0, "WhitePages")
+
+        # SOURCE 3: Indeed Jobs - employers actively hiring (FREE scrape)
+        if req.position and len(businesses) < 20:
+            indeed_results = await scrape_indeed_jobs(req.position, req.zip_code, client)
+            for b in indeed_results:
+                await add_biz(b["name"], b.get("phone",""), b["address"], req.category, 4.3, "Indeed")
+
+        # SOURCE 4: ZipRecruiter - hiring employers (FREE scrape)
+        if req.position and len(businesses) < 20:
+            zip_results = await scrape_ziprecruiter(req.position, req.zip_code, client)
+            for b in zip_results:
+                await add_biz(b["name"], b.get("phone",""), b["address"], req.category, 4.2, "ZipRecruiter")
+
+        # SOURCE 5: Craigslist Jobs (FREE, no blocks)
+        if req.position and len(businesses) < 20:
+            cl_results = await scrape_craigslist_jobs(req.position, req.zip_code, client)
+            for b in cl_results:
+                await add_biz(b["name"], b.get("phone",""), b["address"], req.category, 4.0, "Craigslist")
+
+        # SOURCE 6: OpenStreetMap Nominatim (FREE, no key)
         try:
             osm = await client.get(
                 "https://nominatim.openstreetmap.org/search",
