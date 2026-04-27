@@ -117,8 +117,26 @@ export default function Login() {
             {error&&<div style={{color:'#f87171',fontSize:13,padding:'10px 14px',background:'rgba(248,113,113,0.1)',borderRadius:8}}>{error}</div>}
             {success&&<div style={{color:green,fontSize:13,padding:'10px 14px',background:'rgba(16,185,129,0.1)',borderRadius:8}}>{success}</div>}
 
+            {tab==='signup'&&(
+              <div style={{display:'flex',flexDirection:'column',gap:10,padding:'14px',borderRadius:12,background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)'}}>
+                <div style={{fontSize:12,fontWeight:700,color:'rgba(240,244,248,0.5)',marginBottom:4,letterSpacing:'0.5px'}}>CONSENT & TERMS</div>
+                {[
+                  [optSMS,setOptSMS,true,'I agree to receive SMS job alerts and notifications from WorkBridge (required)'],
+                  [optData,setOptData,true,'I consent to WorkBridge sharing my profile with employers and service providers for matching (required)'],
+                  [optPartners,setOptPartners,false,'I agree to be contacted by WorkBridge partner companies about relevant services — veterans benefits, home loans, insurance, tax relief (optional — enables premium matching)'],
+                ].map(([val,setter,required,label],i)=>(
+                  <label key={i} style={{display:'flex',gap:10,alignItems:'flex-start',cursor:'pointer'}}>
+                    <input type="checkbox" checked={val} onChange={e=>setter(e.target.checked)}
+                      style={{marginTop:3,width:16,height:16,accentColor:'#F59E0B',flexShrink:0}}/>
+                    <span style={{fontSize:12,color:'rgba(240,244,248,0.7)',lineHeight:1.5}}>
+                      {label}{required&&<span style={{color:'#EF4444'}}> *</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
             <button onClick={tab==='login'?handleLogin:tab==='signup'?handleSignup:handleForgot}
-              disabled={loading}
+              disabled={loading||(tab==='signup'&&(!optSMS||!optData))}
               style={{padding:'15px',borderRadius:12,border:'none',background:`linear-gradient(135deg,${amber},#D97706)`,
                 color:dark,fontWeight:900,fontSize:16,cursor:'pointer',opacity:loading?0.7:1,marginTop:4}}>
               {loading?'Please wait...':(tab==='login'?'Log In →':tab==='signup'?'Create Account →':'Send Reset Link →')}
