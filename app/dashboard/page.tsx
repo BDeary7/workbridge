@@ -185,7 +185,7 @@ if(qi>=0&&!done){next(t);setInp('');return}
 setInp('');setMsgs(m=>[...m,{r:'u',c:t}]);setLoading(true)
 try{
 const res=await fetch(`${API}/coach/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[...msgs.filter(m=>!m.o),{r:'u',c:t}].map(m=>({role:m.r==='a'?'assistant':'user',content:m.c})),language:'en'})})
-setMsgs(m=>[...m,{r:'a',c:(await res.json()).reply||'Here to help!'}])
+const d=await res.json();setMsgs(m=>[...m,{r:'a',c:d.reply||'Here to help!'}])
 }catch{setMsgs(m=>[...m,{r:'a',c:'Connection issue — try again!'}])}
 setLoading(false)
 }
