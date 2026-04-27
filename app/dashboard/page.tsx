@@ -221,6 +221,8 @@ export default function Dashboard(){
   const [userPhone, setUserPhone] = useState<string>('')
   const [userEmail, setUserEmail] = useState<string>('')
   const [credits, setCredits] = useState<number>(0)
+  const [buyLoading, setBuyLoading] = useState<number|null>(null)
+  const [buyError, setBuyError] = useState<string>('')
   const [waking, setWaking] = useState<boolean>(true)
   const [ready, setReady] = useState<boolean>(false)
   const [hist, setHist] = useState<any[]>([])
@@ -356,6 +358,7 @@ export default function Dashboard(){
   const buyCredits = async(amount:number)=>{
     const t = tok()
     if(!t){router.push('/login');return}
+    setBuyLoading(amount)
     try{
       const res = await fetch(`${API}/credits/purchase`,{
         method:'POST',
@@ -363,12 +366,18 @@ export default function Dashboard(){
         body:JSON.stringify({credits:amount})
       })
       const d = await res.json()
+      console.log('Stripe response:', d)
       if(d.checkout_url){
-        window.location.href = d.checkout_url
+        window.open(d.checkout_url,'_blank')
+      } else if(d.message){
+        setBuyError(d.message)
       } else {
-        alert(d.message||'Stripe not configured yet')
+        setBuyError('Stripe error — check Render logs')
       }
-    }catch{alert('Connection error — try again')}
+    }catch(e:any){
+      setBuyError('Connection error: '+e.message)
+    }
+    setBuyLoading(null)
   }
 
   const sendChat = async()=>{
@@ -612,6 +621,7 @@ export default function Dashboard(){
               <div style={{fontSize:52,fontWeight:900,color:A}}>{credits}</div>
               <div style={{fontSize:15,color:'rgba(240,244,248,.6)',marginTop:6}}>Credits remaining</div>
             </div>
+            {buyError&&<div style={{padding:'12px 16px',borderRadius:12,background:'rgba(248,113,113,.1)',border:'1px solid rgba(248,113,113,.3)',color:'#f87171',fontSize:13,marginBottom:12}}>{buyError}</div>}
             <div style={{display:'grid',gap:10}}>
               {[[10,'$1.00'],[50,'$4.50'],[100,'$8.00'],[250,'$18.00'],[500,'$30.00']].map(([c,p])=>(
                 <div key={String(c)} style={{padding:'16px 20px',borderRadius:12,background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.1)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -621,7 +631,7 @@ export default function Dashboard(){
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:14}}>
                     <span style={{color:A,fontWeight:800,fontSize:16}}>{p}</span>
-                    <button className="b" onClick={()=>buyCredits(parseInt(String(c)))} style={{padding:'9px 20px',borderRadius:100,border:'none',background:`linear-gradient(135deg,${A},#D97706)`,color:D,fontWeight:800,fontSize:13,cursor:'pointer'}}>Buy</button>
+                    <button className="b" onClick={()=>buyCredits(parseInt(String(c)))} disabled={buyLoading===parseInt(String(c))} style={{padding:'9px 20px',borderRadius:100,border:'none',background:`linear-gradient(135deg,${A},#D97706)`,color:D,fontWeight:800,fontSize:13,cursor:'pointer',opacity:buyLoading===parseInt(String(c))?0.6:1}}>{buyLoading===parseInt(String(c))?'...' :'Buy'}</button>
                   </div>
                 </div>
               ))}
