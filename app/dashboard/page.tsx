@@ -152,7 +152,7 @@ setAppts((await a.json()).appointments||[])
 }catch{}
 setWaking(false)
 }
-const go=id=>{
+const go=(id:string)=>{
 const m=MISSIONS.find(x=>x.id===id)
 if(!m)return
 setMission(id);setQi(0);setAns({});setDone(false)
