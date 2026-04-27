@@ -156,10 +156,18 @@ export default function Login() {
             </p>
           )}
           {tab==='signup'&&(
-            <p style={{textAlign:'center',marginTop:16,fontSize:13,color:'rgba(240,244,248,0.45)'}}>
-              Already have an account?{' '}
-              <span onClick={()=>{setTab('login');setError('');setSuccess('')}} style={{color:amber,cursor:'pointer',fontWeight:700}}>Log in</span>
-            </p>
+            <div>
+              <p style={{textAlign:'center',marginTop:16,fontSize:13,color:'rgba(240,244,248,0.45)'}}>
+                Already have an account?{' '}
+                <span onClick={()=>{setTab('login');setError('');setSuccess('')}} style={{color:amber,cursor:'pointer',fontWeight:700}}>Log in</span>
+              </p>
+              <p style={{textAlign:'center',marginTop:8,fontSize:12,color:'rgba(240,244,248,0.3)'}}>
+                By signing up you agree to our{' '}
+                <a href='/terms' target='_blank' style={{color:amber,textDecoration:'none',fontWeight:700}}>Terms of Service</a>
+                {' '}and{' '}
+                <a href='/terms' target='_blank' style={{color:amber,textDecoration:'none',fontWeight:700}}>Privacy Policy</a>
+              </p>
+            </div>
           )}
         </div>
         <p onClick={()=>router.push('/')} style={{textAlign:'center',marginTop:20,fontSize:13,color:'rgba(240,244,248,0.3)',cursor:'pointer'}}>
