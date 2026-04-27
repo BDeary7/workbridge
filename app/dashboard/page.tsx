@@ -370,7 +370,7 @@ export default function Dashboard(){
       console.log('Stripe response:', d)
       if(d.checkout_url){
         console.log('Redirecting to:', d.checkout_url)
-        window.open(d.checkout_url, '_self')
+        window.location.href = d.checkout_url
       } else if(d.message){
         setBuyError(d.message)
       } else {
