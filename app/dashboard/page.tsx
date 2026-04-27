@@ -625,7 +625,7 @@ export default function Dashboard(){
             </div>
             {buyError&&<div style={{padding:'12px 16px',borderRadius:12,background:'rgba(248,113,113,.1)',border:'1px solid rgba(248,113,113,.3)',color:'#f87171',fontSize:13,marginBottom:12}}>{buyError}</div>}
             <div style={{display:'grid',gap:10}}>
-              {[[50,'$5.00'],[100,'$9.00'],[250,'$20.00'],[500,'$35.00'],[1000,'$60.00']].map(([c,p])=>(
+              {[[50,'$5.00'],[100,'$10.00'],[200,'$20.00'],[400,'$40.00'],[600,'$60.00']].map(([c,p])=>(
                 <div key={String(c)} style={{padding:'16px 20px',borderRadius:12,background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.1)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
                     <div style={{fontWeight:700,fontSize:15}}>{c} SMS Credits</div>

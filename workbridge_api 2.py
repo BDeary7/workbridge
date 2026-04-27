@@ -94,7 +94,7 @@ class CoachRequest(BaseModel):
     messages: List[dict]
     language: Optional[str] = "en"
 
-CREDIT_PACKAGES = {50:500, 100:1000, 200:2000, 400:4000, 600:6000}
+CREDIT_PACKAGES = {10:100, 50:450, 100:800, 250:1800, 500:3000}
 
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
@@ -279,8 +279,8 @@ async def purchase_credits(req: CreditPurchaseRequest, request: Request):
         payment_method_types=["card"],
         line_items=[{"price_data":{"currency":"usd","product_data":{"name":f"WorkBridge {req.credits} SMS Credits"},"unit_amount":price},"quantity":1}],
         mode="payment",
-        success_url="https://workbridge-rho.vercel.app/dashboard",
-        cancel_url="https://workbridge-rho.vercel.app/dashboard",
+        success_url="https://workbridge-rho.vercel.app/success",
+        cancel_url="https://workbridge-rho.vercel.app/credits",
         metadata={"user_id":user["id"],"credits":req.credits}
     )
     conn = get_db()
@@ -292,40 +292,24 @@ async def purchase_credits(req: CreditPurchaseRequest, request: Request):
 
 @app.post("/credits/webhook")
 async def stripe_webhook(request: Request):
+    import stripe
+    stripe.api_key = STRIPE_SECRET_KEY
     payload = await request.body()
+    sig = request.headers.get("stripe-signature","")
     try:
-        event = json.loads(payload)
-        if event.get("type") == "checkout.session.completed":
-            s = event["data"]["object"]
-            meta = s.get("metadata",{})
-            uid = int(meta.get("user_id",0))
-            credits_to_add = int(meta.get("credits",0))
-            if uid and credits_to_add:
-                conn = get_db()
-                conn.execute("UPDATE users SET credits=credits+? WHERE id=?", (credits_to_add, uid))
-                conn.execute("UPDATE credit_transactions SET status='completed' WHERE stripe_session=?", (s["id"],))
-                conn.commit()
-                conn.close()
-                print(f"Added {credits_to_add} credits to user {uid}")
-        return {"status":"ok"}
-    except Exception as e:
-        print(f"Webhook error: {e}")
-        return {"status":"ok"}
-
-@app.post("/admin/add-credits")
-async def admin_add_credits(request: Request):
-    data = await request.json()
-    email = data.get("email")
-    amount = int(data.get("amount", 0))
-    secret = data.get("secret")
-    if secret != "warship2026":
-        raise HTTPException(403, "Forbidden")
-    conn = get_db()
-    conn.execute("UPDATE users SET credits=credits+? WHERE email=?", (amount, email))
-    conn.commit()
-    row = conn.execute("SELECT credits FROM users WHERE email=?", (email,)).fetchone()
-    conn.close()
-    return {"credits": row["credits"] if row else 0, "added": amount}
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET) if STRIPE_WEBHOOK_SECRET else json.loads(payload)
+    except:
+        raise HTTPException(400,"Invalid webhook")
+    if event.get("type") == "checkout.session.completed":
+        s = event["data"]["object"]
+        uid = int(s["metadata"]["user_id"])
+        credits = int(s["metadata"]["credits"])
+        conn = get_db()
+        conn.execute("UPDATE users SET credits=credits+? WHERE id=?", (credits,uid))
+        conn.execute("UPDATE credit_transactions SET status='completed' WHERE stripe_session=?",(s["id"],))
+        conn.commit()
+        conn.close()
+    return {"status":"ok"}
 
 @app.get("/credits/balance")
 async def get_balance(request: Request):
