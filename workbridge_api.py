@@ -175,7 +175,27 @@ async def search_businesses(req: SearchRequest, request: Request):
         except Exception as e:
             print(f"OSM error: {e}")
 
-        # SOURCE 2: Yelp Fusion API (FREE 500/day - needs free key)
+        # SOURCE 2: Bing Maps Local Search (FREE 125K/month)
+        BING_KEY = os.getenv("BING_MAPS_KEY", "")
+        if BING_KEY and len(businesses) < 15:
+            try:
+                bing = await client.get(
+                    "https://dev.virtualearth.net/REST/v1/LocalSearch/",
+                    params={"query": f"{req.category} {req.position}",
+                            "userLocation": req.zip_code,
+                            "maxResults": 20,
+                            "key": BING_KEY}
+                )
+                for biz in bing.json().get("resourceSets",[{}])[0].get("resources",[]):
+                    phone = biz.get("PhoneNumber","")
+                    name = biz.get("name","")
+                    addr = biz.get("Address",{}).get("formattedAddress","")
+                    if phone and name:
+                        await add_biz(name, phone, addr, req.category, 4.0, "Bing")
+            except Exception as e:
+                print(f"Bing error: {e}")
+
+        # SOURCE 3: Yelp Fusion API (FREE 500/day - needs free key)
         YELP_KEY = os.getenv("YELP_API_KEY", "")
         if YELP_KEY:
             try:
