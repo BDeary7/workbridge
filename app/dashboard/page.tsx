@@ -359,6 +359,7 @@ export default function Dashboard(){
     const t = tok()
     if(!t){router.push('/login');return}
     setBuyLoading(amount)
+    setBuyError('')
     try{
       const res = await fetch(`${API}/credits/purchase`,{
         method:'POST',
@@ -368,11 +369,11 @@ export default function Dashboard(){
       const d = await res.json()
       console.log('Stripe response:', d)
       if(d.checkout_url){
-        window.open(d.checkout_url,'_blank')
+        window.location.href = d.checkout_url
       } else if(d.message){
         setBuyError(d.message)
       } else {
-        setBuyError('Stripe error — check Render logs')
+        setBuyError('Payment setup error — check Stripe keys on Render')
       }
     }catch(e:any){
       setBuyError('Connection error: '+e.message)
@@ -621,8 +622,6 @@ export default function Dashboard(){
               <div style={{fontSize:52,fontWeight:900,color:A}}>{credits}</div>
               <div style={{fontSize:15,color:'rgba(240,244,248,.6)',marginTop:6}}>Credits remaining</div>
             </div>
-            {buyError&&<div style={{padding:'12px 16px',borderRadius:12,background:'rgba(248,113,113,.1)',border:'1px solid rgba(248,113,113,.3)',color:'#f87171',fontSize:13,marginBottom:12}}>{buyError}</div>}
-            {buyError&&<div style={{padding:'12px 16px',borderRadius:12,background:'rgba(248,113,113,.1)',border:'1px solid rgba(248,113,113,.3)',color:'#f87171',fontSize:13,marginBottom:12}}>{buyError}</div>}
             {buyError&&<div style={{padding:'12px 16px',borderRadius:12,background:'rgba(248,113,113,.1)',border:'1px solid rgba(248,113,113,.3)',color:'#f87171',fontSize:13,marginBottom:12}}>{buyError}</div>}
             <div style={{display:'grid',gap:10}}>
               {[[10,'$1.00'],[50,'$4.50'],[100,'$8.00'],[250,'$18.00'],[500,'$30.00']].map(([c,p])=>(
