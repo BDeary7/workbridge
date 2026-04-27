@@ -369,7 +369,8 @@ export default function Dashboard(){
       const d = await res.json()
       console.log('Stripe response:', d)
       if(d.checkout_url){
-        window.location.href = d.checkout_url
+        console.log('Redirecting to:', d.checkout_url)
+        window.open(d.checkout_url, '_self')
       } else if(d.message){
         setBuyError(d.message)
       } else {
