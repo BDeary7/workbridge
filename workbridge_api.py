@@ -279,8 +279,8 @@ async def purchase_credits(req: CreditPurchaseRequest, request: Request):
         payment_method_types=["card"],
         line_items=[{"price_data":{"currency":"usd","product_data":{"name":f"WorkBridge {req.credits} SMS Credits"},"unit_amount":price},"quantity":1}],
         mode="payment",
-        success_url="https://workbridge-rho.vercel.app/success",
-        cancel_url="https://workbridge-rho.vercel.app/credits",
+        success_url="https://workbridge-rho.vercel.app/dashboard",
+        cancel_url="https://workbridge-rho.vercel.app/dashboard",
         metadata={"user_id":user["id"],"credits":req.credits}
     )
     conn = get_db()
