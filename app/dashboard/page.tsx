@@ -132,7 +132,7 @@ const[loading,setLoading]=useState(false)
 const[qi,setQi]=useState(-1)
 const[ans,setAns]=useState({})
 const[done,setDone]=useState(false)
-const ref=useRef(null)
+const ref=useRef<HTMLDivElement>(null)
 const tok=()=>typeof window!=='undefined'?localStorage.getItem('wb_token'):null
 useEffect(()=>{
 const t=tok()
