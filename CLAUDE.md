@@ -220,3 +220,139 @@ Best scraping tools identified:
 - Build phases in order — no skipping
 - SMS must be tested before any phase is marked complete
 - Scraping must return real data before marking complete
+
+## COMPLETE US DATA SOURCE MATRIX (110 Sources)
+
+### TIER 1 — BUSINESS DIRECTORIES
+1. Google Maps/Places API — 200M+ businesses
+2. Yellow Pages (yellowpages.com) — 20M+ US businesses
+3. White Pages (whitepages.com) — business + residents
+4. Yelp Fusion API — 500 free/day
+5. Bing Maps API
+6. Apple Maps
+7. Foursquare Places API — 105M+ venues
+8. HERE Maps API
+9. TomTom Places API
+10. MapQuest API
+
+### TIER 2 — SPECIALTY DIRECTORIES
+11. BBB (bbb.org) — accredited businesses
+12. Angi/HomeAdvisor — home service pros
+13. Thumbtack — local service providers
+14. Nextdoor Business — hyperlocal
+15. Manta.com — small business
+16. Superpages.com
+17. Chamber of Commerce dirs — every city
+18. Dun & Bradstreet — 500M+ company records
+19. ZoomInfo — B2B contact data
+20. Clearbit — company enrichment API
+
+### TIER 3 — GOVERNMENT & PUBLIC RECORDS (free + legal)
+21. Secretary of State filings — all 50 states
+22. County Clerk records — business registrations
+23. County Assessor records — property ownership
+24. City business license records — every US city
+25. SBA business registry
+26. FCC license database
+27. USPS address verification API — 160M+ addresses
+28. Census Bureau business data — 32M+ businesses
+29. Data.gov — federal open datasets
+30. EDGAR (SEC) — public company filings
+31. PACER — federal court records
+32. State labor dept — employer registrations
+33. County property tax records — homeowner data
+34. FEMA flood maps
+35. IRS tax-exempt org database
+
+### TIER 4 — INDUSTRY SPECIFIC
+JOB/EMPLOYMENT:
+36. Indeed API — hiring businesses
+37. ZipRecruiter API
+38. LinkedIn Jobs API
+39. Glassdoor API
+40. USAJobs.gov — federal jobs
+
+HOME SERVICES:
+41. Angi/HomeAdvisor Pro network — 250K+ contractors
+42. Porch.com
+43. Houzz Pro
+44. BuildZoom — licensed contractors
+45. All 50 state contractor license boards
+
+SENIOR CARE:
+46. Caring.com — 400K+ senior care options
+47. SeniorAdvisor.com
+48. A Place for Mom
+49. Medicare.gov facility finder
+50. Eldercare.acl.gov
+
+VETERAN SPECIFIC:
+51. VA.gov facility locator
+52. VetBiz.gov — veteran-owned businesses
+53. HireVets.gov
+54. USAA partner network
+55. Military OneSource
+
+REAL ESTATE/HOUSING:
+56. Zillow API
+57. Realtor.com API
+58. HUD housing database — Section 8
+59. ApartmentList.com
+60. Apartments.com
+
+VEHICLES:
+61. USAA dealer network
+62. TrueCar military program
+63. Cars.com dealer API
+64. AutoTrader dealer API
+65. State DMV dealer license records
+
+DEBT/FINANCIAL:
+66. CFPB complaint database
+67. FINRA BrokerCheck
+68. State bar directories — attorneys
+69. IRS tax pro directory
+70. NFCC member directory — credit counselors
+
+EDUCATION:
+71. IPEDS database — all US colleges
+72. Trade school directories
+73. ApprenticeshipUSA.gov
+74. GED Testing Service locator
+75. ESL program directories
+
+### TIER 5 — SOCIAL/PROFESSIONAL
+76. LinkedIn company pages
+77. Facebook Business Pages
+78. Google Business Profile
+79. Instagram Business
+80. Nextdoor
+
+### TIER 6 — DATA ENRICHMENT
+81. Twilio Lookup — phone validation
+82. Hunter.io — email finder
+83. USPS Address API
+84. Melissa Data — verify address/phone/email
+85. Whitepages Pro API
+86. BeenVerified API
+87. Spokeo API
+88. Pipl API — identity verification
+89. FullContact API
+90. NeverBounce — email verification
+
+### SCRAPING TOOLS
+A. Outscraper — Google Maps, $0.001/record (START HERE)
+B. Apify — 1000+ scrapers, free tier
+C. ScrapingBee — proxy rotation
+D. Scrapfly — Yellow Pages specialist
+E. Bright Data — enterprise proxies
+F. PhantomBuster — LinkedIn/social
+G. Scrapy (Python) — custom framework
+H. Playwright — JS-heavy sites
+
+### PRIORITY INTEGRATION ORDER
+Phase 1a: Google Places + Outscraper (immediate)
+Phase 1b: Yellow Pages + Yelp (week 1)
+Phase 1c: Indeed + ZipRecruiter jobs (week 2)
+Phase 1d: Government records by state (month 1)
+Phase 1e: All specialty sources (month 2)
