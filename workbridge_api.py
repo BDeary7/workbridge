@@ -315,9 +315,15 @@ async def stripe_webhook(request: Request):
 async def get_balance(request: Request):
     user = get_user(request)
     conn = get_db()
-    row = conn.execute("SELECT credits FROM users WHERE id=?",(user["id"],)).fetchone()
+    row = conn.execute("SELECT credits,phone,email,name FROM users WHERE id=?",(user["id"],)).fetchone()
     conn.close()
-    return {"credits":row["credits"],"cost_per_text":0.10}
+    return {
+        "credits": row["credits"],
+        "cost_per_text": 0.10,
+        "phone": row["phone"] or "",
+        "email": row["email"] or "",
+        "name": row["name"] or ""
+    }
 
 @app.post("/coach/chat")
 async def coach_chat(req: CoachRequest):
