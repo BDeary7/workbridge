@@ -222,6 +222,43 @@ MAJOR_EMPLOYERS = {
     ]
 }
 
+
+async def search_local_db(category: str, zip_code: str, position: str, limit: int = 20) -> list:
+    """Search our pre-built business database first (fastest)"""
+    results = []
+    try:
+        db_path = "/data/workbridge_businesses.db"
+        if not os.path.exists(db_path):
+            return []
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        
+        # Search by ZIP and category
+        rows = conn.execute("""
+            SELECT * FROM businesses 
+            WHERE (zip_code=? OR zip_code LIKE ?)
+            AND (category LIKE ? OR name LIKE ?)
+            AND (phone IS NOT NULL AND phone != '')
+            ORDER BY hiring DESC, rating DESC
+            LIMIT ?
+        """, (zip_code, zip_code[:3]+'%', f'%{category}%', f'%{position}%', limit)).fetchall()
+        
+        for row in rows:
+            results.append({
+                "name": row["name"],
+                "phone": row["phone"] or "",
+                "address": f"{row['address']}, {row['city']}, {row['state']}",
+                "category": row["category"],
+                "rating": 4.5 if row["hiring"] else 4.0,
+                "source": row["source"],
+                "hiring": bool(row["hiring"]),
+                "hiring_url": row["hiring_url"] or ""
+            })
+        conn.close()
+    except Exception as e:
+        print(f"Local DB search error: {e}")
+    return results
+
 async def get_major_employers_by_category(category: str, zip_code: str, position: str) -> list:
     """Return major employers always hiring in this category"""
     results = []
@@ -441,6 +478,11 @@ async def search_businesses(req: SearchRequest, request: Request):
 
     async with httpx.AsyncClient(timeout=10) as client:
 
+        # SOURCE -1: Our pre-built business database (fastest, most accurate)
+        local_results = await search_local_db(req.category, req.zip_code, req.position)
+        for b in local_results:
+            await add_biz(b["name"], b["phone"], b["address"], req.category, b["rating"], b["source"])
+            
         # SOURCE 0: Major employers always hiring (McDonald's, Starbucks, Walmart etc)
         major_results = await get_major_employers_by_category(req.category, req.zip_code, req.position)
         for b in major_results:
