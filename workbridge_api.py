@@ -94,7 +94,7 @@ class CoachRequest(BaseModel):
     messages: List[dict]
     language: Optional[str] = "en"
 
-CREDIT_PACKAGES = {10:100, 50:450, 100:800, 250:1800, 500:3000}
+CREDIT_PACKAGES = {50:500, 100:900, 250:2000, 500:3500, 1000:6000}
 
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
@@ -311,6 +311,21 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         print(f"Webhook error: {e}")
         return {"status":"ok"}
+
+@app.post("/admin/add-credits")
+async def admin_add_credits(request: Request):
+    data = await request.json()
+    email = data.get("email")
+    amount = int(data.get("amount", 0))
+    secret = data.get("secret")
+    if secret != "warship2026":
+        raise HTTPException(403, "Forbidden")
+    conn = get_db()
+    conn.execute("UPDATE users SET credits=credits+? WHERE email=?", (amount, email))
+    conn.commit()
+    row = conn.execute("SELECT credits FROM users WHERE email=?", (email,)).fetchone()
+    conn.close()
+    return {"credits": row["credits"] if row else 0, "added": amount}
 
 @app.get("/credits/balance")
 async def get_balance(request: Request):
