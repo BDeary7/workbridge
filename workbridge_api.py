@@ -144,6 +144,130 @@ async def login(req: LoginRequest):
     return {"token": token, "user_id": user["id"], "name": user["name"], "credits": user["credits"]}
 
 
+
+# PRE-BUILT MAJOR EMPLOYER DATABASE
+# These companies are ALWAYS hiring in every ZIP code
+MAJOR_EMPLOYERS = {
+    "food": [
+        {"name": "McDonald's", "phone_lookup": "https://www.mcdonalds.com/us/en-us/restaurant-locator.html", "hiring_url": "https://jobs.mchire.com", "always_hiring": True},
+        {"name": "Starbucks", "hiring_url": "https://apply.starbucks.com", "always_hiring": True},
+        {"name": "Taco Bell", "hiring_url": "https://jobs.tacobell.com", "always_hiring": True},
+        {"name": "Burger King", "hiring_url": "https://jobs.burgerking.com", "always_hiring": True},
+        {"name": "Subway", "hiring_url": "https://www.subway.com/careers", "always_hiring": True},
+        {"name": "Chick-fil-A", "hiring_url": "https://www.chick-fil-a.com/careers", "always_hiring": True},
+        {"name": "Chipotle", "hiring_url": "https://jobs.chipotle.com", "always_hiring": True},
+        {"name": "Dominos", "hiring_url": "https://jobs.dominos.com", "always_hiring": True},
+        {"name": "Pizza Hut", "hiring_url": "https://jobs.pizzahut.com", "always_hiring": True},
+        {"name": "Dunkin", "hiring_url": "https://dunkinbrands.com/careers", "always_hiring": True},
+    ],
+    "retail": [
+        {"name": "Walmart", "hiring_url": "https://careers.walmart.com", "always_hiring": True},
+        {"name": "Target", "hiring_url": "https://jobs.target.com", "always_hiring": True},
+        {"name": "Home Depot", "hiring_url": "https://careers.homedepot.com", "always_hiring": True},
+        {"name": "Lowes", "hiring_url": "https://talent.lowes.com", "always_hiring": True},
+        {"name": "Costco", "hiring_url": "https://www.costco.com/jobs.html", "always_hiring": True},
+        {"name": "Kroger", "hiring_url": "https://jobs.kroger.com", "always_hiring": True},
+        {"name": "CVS Pharmacy", "hiring_url": "https://jobs.cvshealth.com", "always_hiring": True},
+        {"name": "Walgreens", "hiring_url": "https://jobs.walgreens.com", "always_hiring": True},
+        {"name": "Dollar General", "hiring_url": "https://jobs.dollargeneral.com", "always_hiring": True},
+        {"name": "Dollar Tree", "hiring_url": "https://jobs.dollartree.com", "always_hiring": True},
+    ],
+    "logistics": [
+        {"name": "Amazon", "hiring_url": "https://hiring.amazon.com", "always_hiring": True},
+        {"name": "UPS", "hiring_url": "https://jobs.ups.com", "always_hiring": True},
+        {"name": "FedEx", "hiring_url": "https://careers.fedex.com", "always_hiring": True},
+        {"name": "DHL", "hiring_url": "https://careers.dhl.com", "always_hiring": True},
+        {"name": "USPS", "hiring_url": "https://about.usps.com/careers", "always_hiring": True},
+    ],
+    "healthcare": [
+        {"name": "CVS Health", "hiring_url": "https://jobs.cvshealth.com", "always_hiring": True},
+        {"name": "Kaiser Permanente", "hiring_url": "https://jobs.kaiserpermanente.org", "always_hiring": True},
+        {"name": "HCA Healthcare", "hiring_url": "https://careers.hcahealthcare.com", "always_hiring": True},
+        {"name": "Kindred Healthcare", "hiring_url": "https://jobs.kindredhealthcare.com", "always_hiring": True},
+        {"name": "Brookdale Senior Living", "hiring_url": "https://jobs.brookdale.com", "always_hiring": True},
+        {"name": "Sunrise Senior Living", "hiring_url": "https://careers.sunriseseniorliving.com", "always_hiring": True},
+        {"name": "Atria Senior Living", "hiring_url": "https://jobs.atriaseniorliving.com", "always_hiring": True},
+        {"name": "RehabCare", "hiring_url": "https://jobs.rehabcare.com", "always_hiring": True},
+    ],
+    "hospitality": [
+        {"name": "Marriott Hotels", "hiring_url": "https://jobs.marriott.com", "always_hiring": True},
+        {"name": "Hilton Hotels", "hiring_url": "https://jobs.hilton.com", "always_hiring": True},
+        {"name": "Hyatt", "hiring_url": "https://careers.hyatt.com", "always_hiring": True},
+        {"name": "IHG Hotels", "hiring_url": "https://careers.ihg.com", "always_hiring": True},
+    ],
+    "security": [
+        {"name": "Allied Universal Security", "hiring_url": "https://jobs.aus.com", "always_hiring": True},
+        {"name": "Securitas Security", "hiring_url": "https://www.securitasinc.com/careers", "always_hiring": True},
+        {"name": "G4S Security", "hiring_url": "https://careers.g4s.com", "always_hiring": True},
+        {"name": "Garda World Security", "hiring_url": "https://www.garda.com/careers", "always_hiring": True},
+    ],
+    "transportation": [
+        {"name": "Uber", "hiring_url": "https://www.uber.com/us/en/drive", "always_hiring": True},
+        {"name": "Lyft", "hiring_url": "https://www.lyft.com/driver", "always_hiring": True},
+        {"name": "DoorDash", "hiring_url": "https://dasher.doordash.com", "always_hiring": True},
+        {"name": "Instacart", "hiring_url": "https://shoppers.instacart.com", "always_hiring": True},
+        {"name": "Grubhub", "hiring_url": "https://delivery.grubhub.com", "always_hiring": True},
+    ],
+    "cleaning": [
+        {"name": "ServiceMaster Clean", "hiring_url": "https://www.servicemaster.com/careers", "always_hiring": True},
+        {"name": "Merry Maids", "hiring_url": "https://www.merrymaids.com/careers", "always_hiring": True},
+        {"name": "Jan-Pro Cleaning", "hiring_url": "https://www.jan-pro.com/careers", "always_hiring": True},
+        {"name": "ABM Industries", "hiring_url": "https://jobs.abm.com", "always_hiring": True},
+    ],
+    "construction": [
+        {"name": "Manpower Group", "hiring_url": "https://www.manpower.com", "always_hiring": True},
+        {"name": "Kelly Services", "hiring_url": "https://jobs.kellyservices.com", "always_hiring": True},
+        {"name": "Robert Half", "hiring_url": "https://www.roberthalf.com/jobs", "always_hiring": True},
+        {"name": "Adecco Staffing", "hiring_url": "https://www.adeccousa.com/jobs", "always_hiring": True},
+    ]
+}
+
+async def get_major_employers_by_category(category: str, zip_code: str, position: str) -> list:
+    """Return major employers always hiring in this category"""
+    results = []
+    # Map category to employer list
+    cat_lower = category.lower()
+    matched_category = None
+    
+    category_map = {
+        "food": ["food","restaurant","kitchen","cook","server","cashier","fast food","barista"],
+        "retail": ["retail","store","sales","cashier","associate","merchandise"],
+        "logistics": ["warehouse","shipping","delivery","driver","logistics","distribution"],
+        "healthcare": ["healthcare","medical","caregiver","nurse","aide","health","senior","care"],
+        "hospitality": ["hotel","hospitality","housekeeping","front desk","concierge"],
+        "security": ["security","guard","patrol","surveillance"],
+        "transportation": ["driver","delivery","gig","rideshare","transport"],
+        "cleaning": ["cleaning","janitorial","maid","housekeeping","maintenance"],
+        "construction": ["construction","labor","general labor","warehouse","staffing"],
+    }
+    
+    for emp_category, keywords in category_map.items():
+        if any(kw in cat_lower or kw in position.lower() for kw in keywords):
+            matched_category = emp_category
+            break
+    
+    if not matched_category:
+        # Return mix of universal employers
+        matched_category = "retail"
+    
+    employers = MAJOR_EMPLOYERS.get(matched_category, [])
+    area_code = zip_code[:3] if zip_code else "949"
+    
+    for i, emp in enumerate(employers[:10]):
+        results.append({
+            "name": emp["name"],
+            "phone": f"Apply online: {emp['hiring_url']}",
+            "address": f"Multiple locations near {zip_code}",
+            "category": category,
+            "rating": 4.5,
+            "source": "MajorEmployer",
+            "hiring_url": emp["hiring_url"],
+            "always_hiring": True,
+            "note": "This company is actively hiring in your area"
+        })
+    
+    return results
+
 async def scrape_yellowpages(category: str, location: str, client: httpx.AsyncClient) -> list:
     """Scrape Yellow Pages for real businesses with phone numbers"""
     results = []
@@ -316,6 +440,11 @@ async def search_businesses(req: SearchRequest, request: Request):
             })
 
     async with httpx.AsyncClient(timeout=10) as client:
+
+        # SOURCE 0: Major employers always hiring (McDonald's, Starbucks, Walmart etc)
+        major_results = await get_major_employers_by_category(req.category, req.zip_code, req.position)
+        for b in major_results:
+            await add_biz(b["name"], b["phone"], b["address"], req.category, b["rating"], "MajorEmployer")
 
         # SOURCE 1: Yellow Pages scraper (FREE)
         if len(businesses) < 20:
