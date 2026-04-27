@@ -141,7 +141,7 @@ setUname(localStorage.getItem('wb_name')||'there')
 init(t)
 },[])
 useEffect(()=>{ref.current?.scrollIntoView({behavior:'smooth'})},[msgs])
-const init=async(t)=>{
+const init=async(t:string)=>{
 setWaking(true)
 for(let i=0;i<3;i++){try{const r=await fetch(`${API}/health`,{signal:AbortSignal.timeout(10000)});if(r.ok){setReady(true);break}}catch{await new Promise(r=>setTimeout(r,2000))}}
 try{
