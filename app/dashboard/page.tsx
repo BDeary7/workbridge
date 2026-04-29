@@ -368,37 +368,35 @@ export default function Dashboard(){
       call: '📞 A specialist will call you shortly. Make sure your phone is on!',
       calendar: '📅 Opening calendar scheduling... A specialist will confirm your appointment via SMS.',
     }
+    const snapAnswers = {...ans}
+    const snapMission = activeMission
     setMsgs(m=>[...m,{r:'u',c:`Contact me via ${method}`},{r:'a',c:messages[method]||'A specialist will reach out shortly!'}])
-    // Trigger immediate Coach Ray help based on mission
     setTimeout(async()=>{
-      const mission = activeMission
-      const narrative = ans.narrative || ''
-      const hasDeadline = /june|july|august|deadline|scholarship|asap|urgent/i.test(narrative)
+      const narrative = (snapAnswers.narrative||'').toLowerCase()
+      const hasDeadline = /june|july|august|september|deadline|scholarship|asap|urgent|by\s+\w+/.test(narrative)
       let helpMsg = ''
-      if(mission==='education'){
-        if(hasDeadline){
-          helpMsg = `I can see you have an urgent deadline! Let me help you RIGHT NOW.\n\nFor your GED, there are 4 subjects: Math, Science, Social Studies, and Reasoning Through Language Arts (Writing).\n\nWhich subject feels hardest for you? Tell me and I will create your personalized 30-day study plan immediately.`
-        } else {
-          helpMsg = `Now let me start helping you prepare! For your GED, which subject feels hardest — Math, Science, Social Studies, or Language Arts? I will build your study plan right now.`
-        }
-      } else if(mission==='job'){
-        helpMsg = `While you wait, let me write your outreach message right now. What is the main type of work you are looking for? I will craft something strong you can use today.`
-      } else if(mission==='veteran'){
-        helpMsg = `While you wait, let me give you your top 3 action items right now:\n\n1. File VA disability claim — even 10% = $165/month tax-free\n2. Check VA home loan benefit — zero down payment\n3. Review GI Bill education benefits\n\nWhich would you like help with first?`
-      } else if(mission==='housing'){
-        helpMsg = `While you wait — call or text 211 right now for same-day emergency housing options in your area. Also check HUD.gov/find-shelter. What is your most urgent housing need tonight?`
-      } else if(mission==='debt'){
-        helpMsg = `While you wait, here are immediate steps:\n\n1. IRS Fresh Start — reduces tax debt\n2. NFCC.org — free credit counseling\n3. NFCC veteran debt forgiveness\n\nWhich type of debt is most urgent?`
+      if(snapMission==='education'){
+        helpMsg = hasDeadline
+          ? `I see you have an urgent deadline! Let me help you RIGHT NOW.\n\nFor the GED there are 4 subjects:\n1. Math\n2. Science\n3. Social Studies\n4. Reasoning Through Language Arts\n\nWhich feels hardest? Tell me and I will build your 30-day study plan immediately.`
+          : `Now let me help you prepare! Which GED subject feels hardest — Math, Science, Social Studies, or Language Arts? I will build your study plan right now.`
+      } else if(snapMission==='job'){
+        helpMsg = `While you wait, let me write your outreach message right now. What is the main type of work you are looking for? I will craft something strong you can send today.`
+      } else if(snapMission==='veteran'){
+        helpMsg = `While you wait, here are your top 3 action items:\n\n1. File VA disability claim — even 10% = $165/month tax-free\n2. Check VA home loan — zero down payment\n3. Review GI Bill education benefits\n\nWhich would you like help with first?`
+      } else if(snapMission==='housing'){
+        helpMsg = `While you wait — text 211 right now for same-day emergency housing in your area. Also check HUD.gov/find-shelter. What is most urgent tonight?`
+      } else if(snapMission==='home'){
+        helpMsg = `While you wait, can you describe the problem in more detail? The more I know, the better I can prepare the pro who contacts you.`
+      } else if(snapMission==='debt'){
+        helpMsg = `While you wait:\n\n1. IRS Fresh Start reduces tax debt\n2. NFCC.org offers free credit counseling\n3. Veterans may qualify for debt forgiveness\n\nWhich type of debt is most pressing?`
       } else {
-        helpMsg = `I am here to help you right now while you wait. What is the most pressing thing I can assist you with today?`
+        helpMsg = `I am here to help you right now while you wait. What is the most urgent thing I can assist you with today?`
       }
       if(helpMsg){
-        setChatLoading(true)
-        await new Promise(r=>setTimeout(r,1500))
         setMsgs(m=>[...m,{r:'a',c:helpMsg}])
-        setChatLoading(false)
       }
-    }, 2000)
+    }, 1500)
+
   }
 
   const saveProfile = async(data:Record<string,string>, mis:string)=>{
