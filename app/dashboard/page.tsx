@@ -353,6 +353,7 @@ export default function Dashboard(){
       const hoursMsg = getBusinessHoursMessage()
       setTimeout(()=>{
         setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your ${label} profile is complete and saved.\n\n${hoursMsg}\n\nHow would you like to be contacted?`}])
+      // Auto-send to Coach Ray for immediate help after contact selection
         setShowContactOptions(true)
         saveProfile(na, mission||'')
       },400)
@@ -368,6 +369,36 @@ export default function Dashboard(){
       calendar: '📅 Opening calendar scheduling... A specialist will confirm your appointment via SMS.',
     }
     setMsgs(m=>[...m,{r:'u',c:`Contact me via ${method}`},{r:'a',c:messages[method]||'A specialist will reach out shortly!'}])
+    // Trigger immediate Coach Ray help based on mission
+    setTimeout(async()=>{
+      const mission = activeMission
+      const narrative = ans.narrative || ''
+      const hasDeadline = /june|july|august|deadline|scholarship|asap|urgent/i.test(narrative)
+      let helpMsg = ''
+      if(mission==='education'){
+        if(hasDeadline){
+          helpMsg = `I can see you have an urgent deadline! Let me help you RIGHT NOW.\n\nFor your GED, there are 4 subjects: Math, Science, Social Studies, and Reasoning Through Language Arts (Writing).\n\nWhich subject feels hardest for you? Tell me and I will create your personalized 30-day study plan immediately.`
+        } else {
+          helpMsg = `Now let me start helping you prepare! For your GED, which subject feels hardest — Math, Science, Social Studies, or Language Arts? I will build your study plan right now.`
+        }
+      } else if(mission==='job'){
+        helpMsg = `While you wait, let me write your outreach message right now. What is the main type of work you are looking for? I will craft something strong you can use today.`
+      } else if(mission==='veteran'){
+        helpMsg = `While you wait, let me give you your top 3 action items right now:\n\n1. File VA disability claim — even 10% = $165/month tax-free\n2. Check VA home loan benefit — zero down payment\n3. Review GI Bill education benefits\n\nWhich would you like help with first?`
+      } else if(mission==='housing'){
+        helpMsg = `While you wait — call or text 211 right now for same-day emergency housing options in your area. Also check HUD.gov/find-shelter. What is your most urgent housing need tonight?`
+      } else if(mission==='debt'){
+        helpMsg = `While you wait, here are immediate steps:\n\n1. IRS Fresh Start — reduces tax debt\n2. NFCC.org — free credit counseling\n3. NFCC veteran debt forgiveness\n\nWhich type of debt is most urgent?`
+      } else {
+        helpMsg = `I am here to help you right now while you wait. What is the most pressing thing I can assist you with today?`
+      }
+      if(helpMsg){
+        setChatLoading(true)
+        await new Promise(r=>setTimeout(r,1500))
+        setMsgs(m=>[...m,{r:'a',c:helpMsg}])
+        setChatLoading(false)
+      }
+    }, 2000)
   }
 
   const saveProfile = async(data:Record<string,string>, mis:string)=>{
