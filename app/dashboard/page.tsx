@@ -213,6 +213,36 @@ const getBusinessHoursMessage = () => {
     : 'A specialist will contact you first thing during business hours (Mon-Fri 6am-6pm PST).'
 }
 
+
+const getMissionHelp = (mission: string, answers: Record<string,string>): string => {
+  const zip = answers.zip || ''
+  const narrative = answers.narrative || ''
+  
+  if (mission === 'education') {
+    const goal = answers.goal || 'GED'
+    const budget = answers.budget || ''
+    const deadlineMatch = narrative.match(/june|july|august|september|by\s+\w+|deadline|scholarship/i)
+    if (deadlineMatch) {
+      return `I can see you have an urgent deadline. Let me help you prepare RIGHT NOW. Tell me: which subject feels hardest — Math, Science, Social Studies, or Language Arts? I will create a focused 30-day study plan for you immediately.`
+    }
+    return `Let me start helping you now. For your ${goal} goal, tell me which subject feels hardest — Math, Science, Social Studies, or Language Arts? I will quiz you and build a study plan around your schedule.`
+  }
+  if (mission === 'job') {
+    const jobType = answers.job_type || 'the position'
+    return `Let me write your outreach message right now. Based on your profile, here is a strong opening: "Hi, my name is ${uname}. I am experienced in ${jobType} and available to start immediately. Do you have any openings?" Want me to personalize this further?`
+  }
+  if (mission === 'veteran') {
+    return `Based on your answers, here are your top 3 priorities: 1) File your VA disability claim if you have not — even 10% rating = $165/month tax-free. 2) Check your VA home loan eligibility — zero down payment. 3) Review your education benefits under the GI Bill. Which would you like to tackle first?`
+  }
+  if (mission === 'housing') {
+    return `For your ZIP code ${zip}, here are immediate resources: 211 (dial or text) connects you to emergency housing tonight. The VA has SSVF grants for veterans facing homelessness. HUD.gov/find-shelter has same-day options. Which is most urgent right now?`
+  }
+  if (mission === 'debt') {
+    return `Based on your situation, you may qualify for: IRS Fresh Start program (reduces tax debt), NFCC free credit counseling, and veteran-specific debt forgiveness programs. Which type of debt is most pressing right now?`
+  }
+  return `I am here to help you right now — not just later. What is the most urgent thing I can assist you with today?`
+}
+
 export default function Dashboard(){
   const router = useRouter()
   const [view, setView] = useState<string>('missions')
