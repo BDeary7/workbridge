@@ -11,6 +11,7 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [zip, setZip] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
@@ -31,7 +32,8 @@ export default function Login() {
       if (data.token) {
         localStorage.setItem('wb_token', data.token)
         localStorage.setItem('wb_name', data.name||email.split('@')[0])
-        router.push('/dashboard')
+        const onboardingDone = localStorage.getItem('wb_onboarding_done')
+        router.push(onboardingDone ? '/dashboard' : '/onboarding')
       } else {
         setError(data.detail || 'Invalid email or password')
       }
@@ -46,7 +48,7 @@ export default function Login() {
     try {
       const res = await fetch(`${API}/auth/register`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({name, email, phone, password, language:'en'})
+        body: JSON.stringify({name, email, phone, password, language:'en', zip_code: zip})
       })
       const data = await res.json()
       if (data.token) {
@@ -54,7 +56,7 @@ export default function Login() {
         localStorage.setItem('wb_name', name)
         localStorage.setItem('wb_phone', phone)
         localStorage.setItem('wb_email', email)
-        router.push('/dashboard')
+        router.push('/onboarding')
       } else {
         setError(data.detail==='Email already registered'?'That email already has an account — try Log In':'Could not create account')
       }
@@ -110,6 +112,7 @@ export default function Login() {
               <>
                 <input value={name} onChange={e=>setName(e.target.value)} placeholder="Full name" style={inp}/>
                 <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Phone number" type="tel" style={inp}/>
+              <input value={zip} onChange={e=>setZip(e.target.value)} placeholder="ZIP Code" type="text" maxLength={5} style={inp}/>
               </>
             )}
             <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address" type="email" style={inp}/>

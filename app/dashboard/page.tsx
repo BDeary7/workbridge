@@ -243,9 +243,15 @@ const getMissionHelp = (mission: string, answers: Record<string,string>): string
   return `I am here to help you right now — not just later. What is the most urgent thing I can assist you with today?`
 }
 
+
+const SEED_STATEMENT = "Imagine having a personal assistant who knows every healthcare provider, contractor, financial advisor, employer, educator, and service professional in the country — 33 million resources in every ZIP code across 50 states — and can text them all on your behalf in seconds, connecting at a rate of 98% success. That is WorkBridge. Your entire support system, at your fingertips."
+
 export default function Dashboard(){
   const router = useRouter()
   const [view, setView] = useState<string>('missions')
+  const [activeMissions, setActiveMissions] = useState<string[]>([])
+  const [showAddMission, setShowAddMission] = useState<boolean>(false)
+  const [glowing, setGlowing] = useState<boolean>(false)
   const [mission, setMission] = useState<string|null>(null)
   const [uname, setUname] = useState<string>('')
   const [userPhone, setUserPhone] = useState<string>('')
@@ -272,6 +278,10 @@ export default function Dashboard(){
     const token = tok()
     if(!token){router.push('/login');return}
     setUname(localStorage.getItem('wb_name')||'there')
+    const savedMissions = localStorage.getItem('wb_missions')
+    if(savedMissions){ setActiveMissions(JSON.parse(savedMissions)) }
+    // Trigger glow on load
+    setTimeout(()=>{setGlowing(true); setTimeout(()=>setGlowing(false),3000)},500)
     setUserPhone(localStorage.getItem('wb_phone')||'')
     setUserEmail(localStorage.getItem('wb_email')||'')
     initApp(token)

@@ -787,6 +787,48 @@ async def admin_add_credits(request: Request):
     conn.close()
     return {"credits": row["credits"] if row else 0, "added": amount}
 
+
+class MissionsRequest(BaseModel):
+    missions: List[str]
+
+@app.post("/user/missions")
+async def save_missions(req: MissionsRequest, request: Request):
+    user = get_user(request)
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_missions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE,
+            missions TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )""")
+    conn.execute("""
+        INSERT INTO user_missions (user_id, missions)
+        VALUES (?,?)
+        ON CONFLICT(user_id) DO UPDATE SET missions=excluded.missions
+    """, (user["id"], json.dumps(req.missions)))
+    # Create lead profiles for each selected mission
+    for mission in req.missions:
+        conn.execute("""
+            INSERT OR IGNORE INTO user_profiles (user_id, mission, answers)
+            VALUES (?,?,?)
+        """, (user["id"], mission, json.dumps({"source": "onboarding", "missions_selected": req.missions})))
+    conn.commit()
+    conn.close()
+    return {"status": "saved", "missions": req.missions}
+
+@app.get("/user/missions")
+async def get_missions(request: Request):
+    user = get_user(request)
+    conn = get_db()
+    conn.execute("""CREATE TABLE IF NOT EXISTS user_missions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER UNIQUE, missions TEXT,
+        created_at TEXT DEFAULT (datetime('now')))""")
+    row = conn.execute("SELECT missions FROM user_missions WHERE user_id=?", (user["id"],)).fetchone()
+    conn.close()
+    return {"missions": json.loads(row["missions"]) if row else []}
+
 @app.get("/credits/balance")
 async def get_balance(request: Request):
     user = get_user(request)
