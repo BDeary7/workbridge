@@ -279,7 +279,9 @@ export default function Dashboard(){
     if(!token){router.push('/login');return}
     setUname(localStorage.getItem('wb_name')||'there')
     const savedMissions = localStorage.getItem('wb_missions')
-    if(savedMissions){ setActiveMissions(JSON.parse(savedMissions)) }
+    if(savedMissions){
+      try{ setActiveMissions(JSON.parse(savedMissions)) }catch{}
+    }
     // Trigger glow on load
     setTimeout(()=>{setGlowing(true); setTimeout(()=>setGlowing(false),3000)},500)
     setUserPhone(localStorage.getItem('wb_phone')||'')
