@@ -15,6 +15,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+  const [lang, setLang] = useState('en')
   const [optSMS, setOptSMS] = useState(false)
   const [optData, setOptData] = useState(false)
   const [optPartners, setOptPartners] = useState(false)
@@ -86,7 +87,7 @@ export default function Login() {
         <div onClick={()=>router.push('/')} style={{fontSize:28,fontWeight:900,textAlign:'center',marginBottom:8,cursor:'pointer'}}>
           Work<span style={{color:amber}}>Bridge</span>
         </div>
-        <p style={{textAlign:'center',color:'rgba(240,244,248,0.5)',marginBottom:32,fontSize:14}}>
+        <p style={{textAlign:'center',color:'#F0F4F8',marginBottom:32,fontSize:14}}>
           {tab==='login'?'Welcome back':tab==='signup'?'Create your free account':'Reset your password'}
         </p>
         <div style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:20,padding:32}}>
@@ -104,7 +105,7 @@ export default function Login() {
           {tab==='forgot'&&(
             <div style={{marginBottom:20}}>
               <h3 style={{fontSize:18,fontWeight:800,marginBottom:6}}>Reset Password</h3>
-              <p style={{color:'rgba(240,244,248,0.55)',fontSize:14}}>Enter your email and we will send a reset link.</p>
+              <p style={{color:'#F0F4F8',fontSize:14}}>Enter your email and we will send a reset link.</p>
             </div>
           )}
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
@@ -123,7 +124,7 @@ export default function Login() {
             )}
             {tab==='signup'&&(
               <div style={{display:'flex',flexDirection:'column',gap:10,padding:'14px',borderRadius:12,background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)'}}>
-                <div style={{fontSize:12,fontWeight:700,color:'rgba(240,244,248,0.5)',marginBottom:4,letterSpacing:'0.5px'}}>CONSENT & TERMS</div>
+                <div style={{fontSize:12,fontWeight:700,color:'#F0F4F8',marginBottom:4,letterSpacing:'0.5px'}}>CONSENT & TERMS</div>
                 {[
                   [optSMS,setOptSMS,true,'I agree to receive SMS job alerts and notifications from WorkBridge (required)'],
                   [optData,setOptData,true,'I consent to WorkBridge sharing my profile with employers and service providers for matching (required)'],
@@ -149,22 +150,22 @@ export default function Login() {
             </button>
           </div>
           {tab==='login'&&(
-            <p style={{textAlign:'center',marginTop:16,fontSize:13,color:'rgba(240,244,248,0.45)'}}>
+            <p style={{textAlign:'center',marginTop:16,fontSize:13,color:'rgba(240,244,248,0.85)'}}>
               <span onClick={()=>{setTab('forgot');setError('');setSuccess('')}} style={{color:amber,cursor:'pointer',fontWeight:700}}>Forgot password?</span>
             </p>
           )}
           {tab==='forgot'&&(
-            <p style={{textAlign:'center',marginTop:16,fontSize:13,color:'rgba(240,244,248,0.45)'}}>
+            <p style={{textAlign:'center',marginTop:16,fontSize:13,color:'rgba(240,244,248,0.85)'}}>
               <span onClick={()=>{setTab('login');setError('');setSuccess('')}} style={{color:amber,cursor:'pointer',fontWeight:700}}>← Back to login</span>
             </p>
           )}
           {tab==='signup'&&(
             <div>
-              <p style={{textAlign:'center',marginTop:16,fontSize:13,color:'rgba(240,244,248,0.45)'}}>
+              <p style={{textAlign:'center',marginTop:16,fontSize:13,color:'rgba(240,244,248,0.85)'}}>
                 Already have an account?{' '}
                 <span onClick={()=>{setTab('login');setError('');setSuccess('')}} style={{color:amber,cursor:'pointer',fontWeight:700}}>Log in</span>
               </p>
-              <p style={{textAlign:'center',marginTop:8,fontSize:12,color:'rgba(240,244,248,0.3)'}}>
+              <p style={{textAlign:'center',marginTop:8,fontSize:12,color:'rgba(240,244,248,0.75)'}}>
                 By signing up you agree to our{' '}
                 <a href='/terms' target='_blank' style={{color:amber,textDecoration:'none',fontWeight:700}}>Terms of Service</a>
                 {' '}and{' '}
@@ -173,7 +174,7 @@ export default function Login() {
             </div>
           )}
         </div>
-        <p onClick={()=>router.push('/')} style={{textAlign:'center',marginTop:20,fontSize:13,color:'rgba(240,244,248,0.3)',cursor:'pointer'}}>
+        <p onClick={()=>router.push('/')} style={{textAlign:'center',marginTop:20,fontSize:13,color:'rgba(240,244,248,0.75)',cursor:'pointer'}}>
           ← Back to WorkBridge
         </p>
       </div>

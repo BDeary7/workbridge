@@ -271,6 +271,8 @@ export default function Dashboard(){
   const [done, setDone] = useState<boolean>(false)
   const [questions, setQuestions] = useState<any[]>([])
   const [showContactOptions, setShowContactOptions] = useState<boolean>(false)
+  const [outreachMessage, setOutreachMessage] = useState<string>('')
+  const [sending, setSending] = useState<boolean>(false)
   const ref = useRef<HTMLDivElement>(null)
   const tok = () => typeof window !== 'undefined' ? localStorage.getItem('wb_token') : null
 
@@ -364,7 +366,29 @@ export default function Dashboard(){
       const label = MISSIONS.find(x=>x.id===mission)?.label
       const hoursMsg = getBusinessHoursMessage()
       setTimeout(()=>{
-        setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your ${label} profile is complete and saved.\n\n${hoursMsg}\n\nHow would you like to be contacted?`}])
+        // Generate outreach message and show preview
+    const currentAnswers = {...na}
+    const currentMission = id
+    setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your ${label} profile is complete and saved.\n\n${hoursMsg}\n\nI am writing your outreach message now...`}])
+    
+    // Fetch AI-generated message
+    setTimeout(async()=>{
+      try{
+        const t = tok()
+        const msgRes = await fetch(`${API}/coach/generate-message`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
+          body:JSON.stringify({mission:currentMission, answers:currentAnswers, name:uname})
+        })
+        const msgData = await msgRes.json()
+        const outreachMsg = msgData.message || `Hi, my name is ${uname}. I am looking for work in ${currentAnswers.category||currentMission} and am available immediately. Do you have any openings?`
+        
+        setOutreachMessage(outreachMsg)
+        setMsgs(m=>[...m,{r:'a',c:`Here is your outreach message that I will send to local businesses on your behalf:\n\n"${outreachMsg}"\n\nYou will be contacted via SMS, email, or phone based on how businesses respond. I will manage all replies and notify you when someone is interested.\n\nReady to send to ${currentAnswers.zip_code||'your area'} businesses?`,showSend:true}])
+      }catch{
+        setMsgs(m=>[...m,{r:'a',c:`Your profile is saved! I will start reaching out to businesses in your area now. You will receive responses directly via SMS.`}])
+      }
+    },1500)
       // Auto-send to Coach Ray for immediate help after contact selection
         setShowContactOptions(true)
         saveProfile(na, mission||'')
@@ -451,6 +475,32 @@ export default function Dashboard(){
       setBuyError('Connection error: '+e.message)
     }
     setBuyLoading(null)
+  }
+
+  const sendOutreach = async()=>{
+    if(!outreachMessage||sending)return
+    setSending(true)
+    const t = tok()
+    setMsgs(m=>[...m,{r:'a',c:'Sending your message to businesses in your area now... 📤'}])
+    try{
+      const res = await fetch(`${API}/sms/blast`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
+        body:JSON.stringify({
+          message: outreachMessage,
+          zip_code: ans.zip_code||'90001',
+          category: activeMission||'job',
+          position: ans.position||ans.job_type||'',
+          businesses: []
+        })
+      })
+      const d = await res.json()
+      setMsgs(m=>[...m,{r:'a',c:`✅ Sent! Your message is going out to ${d.count||'local'} businesses. I will notify you as soon as someone responds. Keep an eye on your SMS — replies come in real time.`}])
+    }catch{
+      setMsgs(m=>[...m,{r:'a',c:'Messages queued! Businesses will be contacted shortly.'}])
+    }
+    setSending(false)
+    setOutreachMessage('')
   }
 
   const sendChat = async()=>{

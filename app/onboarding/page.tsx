@@ -94,7 +94,7 @@ export default function Onboarding() {
             {step === 'select' && (
               <div className="bubble" style={{background:`rgba(245,158,11,0.1)`,border:`1px solid rgba(245,158,11,0.3)`,borderRadius:'4px 16px 16px 16px',padding:'14px 18px',fontSize:15,lineHeight:1.7,marginBottom:20,maxWidth:480}}>
                 <strong style={{color:amber}}>What can I help you with today?</strong><br/>
-                <span style={{color:'rgba(240,244,248,0.7)',fontSize:13}}>Select everything that applies — I will activate a specialist for each one.</span>
+                <span style={{color:'#F0F4F8',fontSize:13}}>Select everything that applies — I will activate a specialist for each one.</span>
               </div>
             )}
 
@@ -129,7 +129,7 @@ export default function Onboarding() {
                     <span style={{fontSize:20,flexShrink:0}}>{m.icon}</span>
                     <div style={{flex:1}}>
                       <div style={{fontWeight:700,fontSize:14,color: isSelected ? amber : white}}>{m.label}</div>
-                      <div style={{fontSize:12,color:'rgba(240,244,248,0.5)',marginTop:2}}>{m.desc}</div>
+                      <div style={{fontSize:12,color:'#F0F4F8',marginTop:2}}>{m.desc}</div>
                     </div>
                     <div style={{
                       width:20,height:20,borderRadius:'50%',flexShrink:0,
@@ -167,14 +167,14 @@ export default function Onboarding() {
               style={{
                 width:'100%',padding:'16px',borderRadius:12,border:'none',
                 background: selected.length > 0 ? `linear-gradient(135deg,${amber},#D97706)` : 'rgba(255,255,255,0.07)',
-                color: selected.length > 0 ? dark : 'rgba(240,244,248,0.3)',
+                color: selected.length > 0 ? dark : 'rgba(240,244,248,0.75)',
                 fontWeight:900,fontSize:16,cursor: selected.length > 0 ? 'pointer' : 'not-allowed',
                 transition:'all 0.2s'
               }}>
               {loading ? 'Setting up your dashboard...' : selected.length === 0 ? 'Select at least one mission' : `Let's Go — Activate My Mission${selected.length > 1 ? 's' : ''} →`}
             </button>
 
-            <p style={{textAlign:'center',marginTop:12,fontSize:12,color:'rgba(240,244,248,0.3)'}}>
+            <p style={{textAlign:'center',marginTop:12,fontSize:12,color:'rgba(240,244,248,0.75)'}}>
               You can add more missions anytime from your dashboard
             </p>
           </div>
