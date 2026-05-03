@@ -112,6 +112,274 @@ def get_user(request: Request):
 async def root():
     return {"message":"WorkBridge API","docs":"/docs","health":"/health"}
 
+
+@app.post("/coach/agent-search")
+async def agent_search(request: Request):
+    """
+    Full Coach Ray Agent:
+    1. Search real businesses via Google Places
+    2. Write bilingual outreach message
+    3. Send SMS to businesses via Twilio
+    4. Track replies
+    5. Schedule interviews
+    """
+    user = get_user(request)
+    data = await request.json()
+    
+    mission = data.get("mission", "job")
+    answers = data.get("answers", {})
+    zip_code = data.get("zip_code", "90001")
+    user_lang = data.get("language", "en")
+    user_name = data.get("name", "")
+    category = data.get("category", "")
+    position = data.get("position", "")
+    
+    conn = get_db()
+    user_row = conn.execute(
+        "SELECT name, phone, email FROM users WHERE id=?", 
+        (user["id"],)
+    ).fetchone()
+    conn.close()
+    
+    name = user_row["name"] if user_row else user_name
+    
+    # Step 1: Find real businesses via Google Places
+    businesses = []
+    if GOOGLE_PLACES_KEY:
+        async with httpx.AsyncClient(timeout=15) as client:
+            try:
+                geo = await client.get(
+                    "https://maps.googleapis.com/maps/api/geocode/json",
+                    params={"address": zip_code, "key": GOOGLE_PLACES_KEY}
+                )
+                geo_data = geo.json()
+                if geo_data.get("results"):
+                    loc = geo_data["results"][0]["geometry"]["location"]
+                    lat, lng = loc["lat"], loc["lng"]
+                    resp = await client.get(
+                        "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+                        params={
+                            "location": f"{lat},{lng}",
+                            "radius": 16090,
+                            "keyword": f"{category} {position}",
+                            "key": GOOGLE_PLACES_KEY
+                        }
+                    )
+                    for place in resp.json().get("results", [])[:10]:
+                        detail = await client.get(
+                            "https://maps.googleapis.com/maps/api/place/details/json",
+                            params={
+                                "place_id": place["place_id"],
+                                "fields": "name,formatted_phone_number,formatted_address",
+                                "key": GOOGLE_PLACES_KEY
+                            }
+                        )
+                        d = detail.json().get("result", {})
+                        if d.get("formatted_phone_number"):
+                            businesses.append({
+                                "name": place.get("name"),
+                                "phone": d["formatted_phone_number"],
+                                "address": d.get("formatted_address", "")
+                            })
+                        await asyncio.sleep(0.05)
+            except Exception as e:
+                print(f"Places error: {e}")
+    
+    # Step 2: Generate outreach message in ENGLISH (for employers)
+    english_message = f"Hi, my name is {name}. I have experience in {position or category} and am available to start immediately. Do you have any openings? I am reliable, motivated, and ready to contribute. Please reply or call me back."
+    
+    if ANTHROPIC_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": ANTHROPIC_API_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-opus-4-5",
+                        "max_tokens": 200,
+                        "messages": [{
+                            "role": "user",
+                            "content": f"""Write a professional SMS outreach message IN ENGLISH for a job seeker.
+Name: {name}
+Position seeking: {position or category}
+Experience summary: {answers.get("narrative", "experienced professional")}
+ZIP: {zip_code}
+
+Rules:
+- Write ONLY in English (this goes to employers)
+- Under 160 characters
+- Professional and warm
+- Include name, position, availability
+- End with a question about openings
+- NO hashtags, NO emojis
+
+Return ONLY the SMS text."""
+                        }]
+                    }
+                )
+                msg_data = resp.json()
+                if msg_data.get("content"):
+                    english_message = msg_data["content"][0]["text"].strip()
+        except Exception as e:
+            print(f"Message gen error: {e}")
+    
+    # Step 3: Generate Spanish confirmation for Hugo
+    spanish_confirmation = f"¡Perfecto {name}! Encontré {len(businesses)} empresas cerca de ti en {zip_code}. Estoy enviando tu mensaje ahora mismo. Te avisaré cuando alguien responda."
+    if user_lang == "es" and ANTHROPIC_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": ANTHROPIC_API_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-opus-4-5",
+                        "max_tokens": 150,
+                        "messages": [{
+                            "role": "user",
+                            "content": f"Write a warm encouraging message IN SPANISH to {name} telling them you found {len(businesses)} businesses near {zip_code} and are sending their job inquiry now. Tell them you will notify them when someone responds. Keep it under 2 sentences."
+                        }]
+                    }
+                )
+                conf_data = resp.json()
+                if conf_data.get("content"):
+                    spanish_confirmation = conf_data["content"][0]["text"].strip()
+        except Exception as e:
+            print(f"Spanish conf error: {e}")
+    
+    # Step 4: Send SMS to businesses via Twilio
+    sent_count = 0
+    if TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM and businesses:
+        from twilio.rest import Client as TwilioClient
+        twilio_client = TwilioClient(TWILIO_SID, TWILIO_TOKEN)
+        
+        conn = get_db()
+        for biz in businesses[:10]:
+            try:
+                phone = biz["phone"].replace(" ","").replace("-","").replace("(","").replace(")","").replace("+","")
+                if not phone.startswith("1"):
+                    phone = "1" + phone
+                
+                twilio_client.messages.create(
+                    body=english_message,
+                    from_=TWILIO_FROM,
+                    to=f"+{phone}"
+                )
+                
+                # Save to outreach log
+                conn.execute("""
+                    INSERT OR IGNORE INTO outreach_log 
+                    (user_id, business_name, business_phone, message, status, mission)
+                    VALUES (?,?,?,?,?,?)
+                """, (user["id"], biz["name"], biz["phone"], english_message, "sent", mission))
+                sent_count += 1
+                await asyncio.sleep(0.2)
+            except Exception as e:
+                print(f"SMS error to {biz.get('name')}: {e}")
+        conn.commit()
+        conn.close()
+    
+    return {
+        "status": "success",
+        "businesses_found": len(businesses),
+        "messages_sent": sent_count,
+        "outreach_message": english_message,
+        "user_confirmation": spanish_confirmation,
+        "businesses": businesses[:5]
+    }
+
+
+@app.post("/coach/schedule-interview")
+async def schedule_interview(request: Request):
+    """Schedule interview and send bilingual reminders"""
+    user = get_user(request)
+    data = await request.json()
+    
+    employer_name = data.get("employer_name", "")
+    employer_phone = data.get("employer_phone", "")
+    interview_date = data.get("interview_date", "")
+    interview_time = data.get("interview_time", "")
+    interview_address = data.get("interview_address", "")
+    user_lang = data.get("language", "en")
+    
+    conn = get_db()
+    user_row = conn.execute(
+        "SELECT name, phone FROM users WHERE id=?",
+        (user["id"],)
+    ).fetchone()
+    
+    user_name = user_row["name"] if user_row else ""
+    user_phone = user_row["phone"] if user_row else ""
+    
+    # Save interview to DB
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS interviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            employer_name TEXT,
+            employer_phone TEXT,
+            interview_date TEXT,
+            interview_time TEXT,
+            interview_address TEXT,
+            status TEXT DEFAULT 'scheduled',
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("""
+        INSERT INTO interviews 
+        (user_id, employer_name, employer_phone, interview_date, interview_time, interview_address)
+        VALUES (?,?,?,?,?,?)
+    """, (user["id"], employer_name, employer_phone, interview_date, interview_time, interview_address))
+    conn.commit()
+    conn.close()
+    
+    # Send confirmation to user in their language
+    if user_lang == "es":
+        user_msg = f"¡Entrevista confirmada! {employer_name} te espera el {interview_date} a las {interview_time}. Dirección: {interview_address}. ¡Buena suerte, {user_name}! 🌟"
+    else:
+        user_msg = f"Interview confirmed! {employer_name} is expecting you on {interview_date} at {interview_time}. Address: {interview_address}. Good luck {user_name}!"
+    
+    # Send confirmation to employer in English
+    employer_msg = f"This confirms {user_name}'s interview on {interview_date} at {interview_time}. We look forward to meeting with you. Please reply to confirm."
+    
+    # Send SMS confirmations
+    if TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM:
+        from twilio.rest import Client as TwilioClient
+        twilio_client = TwilioClient(TWILIO_SID, TWILIO_TOKEN)
+        
+        try:
+            if user_phone:
+                phone = user_phone.replace(" ","").replace("-","").replace("(","").replace(")","")
+                if not phone.startswith("+"):
+                    phone = "+1" + phone.replace("+","")
+                twilio_client.messages.create(body=user_msg, from_=TWILIO_FROM, to=phone)
+        except Exception as e:
+            print(f"User SMS error: {e}")
+        
+        try:
+            if employer_phone:
+                emp_phone = employer_phone.replace(" ","").replace("-","").replace("(","").replace(")","")
+                if not emp_phone.startswith("+"):
+                    emp_phone = "+1" + emp_phone.replace("+","")
+                twilio_client.messages.create(body=employer_msg, from_=TWILIO_FROM, to=emp_phone)
+        except Exception as e:
+            print(f"Employer SMS error: {e}")
+    
+    return {
+        "status": "scheduled",
+        "user_message": user_msg,
+        "employer_message": employer_msg,
+        "interview_date": interview_date,
+        "interview_time": interview_time
+    }
+
 @app.get("/health")
 async def health():
     return {"status":"online","service":"WorkBridge API","version":"1.0.0","message":"Built for Hugo. 🌉"}
