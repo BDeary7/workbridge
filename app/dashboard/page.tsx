@@ -282,7 +282,12 @@ export default function Dashboard(){
     setUname(localStorage.getItem('wb_name')||'there')
     const savedMissions = localStorage.getItem('wb_missions')
     if(savedMissions){
-      try{ setActiveMissions(JSON.parse(savedMissions)) }catch{}
+      try{ 
+        const parsed = JSON.parse(savedMissions)
+        if(Array.isArray(parsed) && parsed.length > 0){
+          setActiveMissions(parsed)
+        }
+      }catch{}
     }
     // Trigger glow on load
     setTimeout(()=>{setGlowing(true); setTimeout(()=>setGlowing(false),3000)},500)
@@ -568,7 +573,7 @@ export default function Dashboard(){
             <h2 style={{fontSize:26,fontWeight:900,marginBottom:6}}>What can Coach Ray help you with?</h2>
             <p style={{color:'rgba(240,244,248,.55)',fontSize:14,marginBottom:28}}>Choose a mission — Coach Ray becomes a specialist and asks the right questions to connect you with results.</p>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:14}}>
-              {MISSIONS.map(m=>(
+              {(activeMissions.length > 0 ? MISSIONS.filter(m=>activeMissions.includes(m.id)) : MISSIONS).map(m=>(
                 <div key={m.id} className="mc" onClick={()=>startMission(m.id)}
                   style={{padding:'22px 24px',borderRadius:16,background:'rgba(255,255,255,.04)',
                     border:`1px solid ${m.color}44`,borderLeft:`4px solid ${m.color}`,cursor:'pointer',transition:'all .2s'}}>
