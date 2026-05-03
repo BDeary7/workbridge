@@ -549,6 +549,145 @@ Write a professional, warm reply IN ENGLISH (to send to the employer).
     
     return {"suggestion": suggestion}
 
+
+import asyncio
+from typing import AsyncGenerator
+
+# Store active SSE connections per user
+active_connections: dict = {}
+
+@app.get("/messages/stream/{user_id}")
+async def message_stream(user_id: int, request: Request):
+    """Server-Sent Events — pushes new messages to browser instantly"""
+    from fastapi.responses import Response, StreamingResponse
+    
+    async def event_generator() -> AsyncGenerator[str, None]:
+        # Register this connection
+        queue = asyncio.Queue()
+        active_connections[user_id] = queue
+        
+        try:
+            # Send initial ping
+            yield f"data: {json.dumps({'type': 'connected', 'user_id': user_id})}\n\n"
+            
+            while True:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+                
+                try:
+                    # Wait for new message (timeout every 20s to send keepalive)
+                    message = await asyncio.wait_for(queue.get(), timeout=20.0)
+                    yield f"data: {json.dumps(message)}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive ping
+                    yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+        finally:
+            # Clean up connection
+            if user_id in active_connections:
+                del active_connections[user_id]
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@app.post("/messages/twilio-webhook")
+async def twilio_webhook(request: Request):
+    """
+    Twilio calls this when employer replies to SMS.
+    Saves reply to DB and pushes to user in real time.
+    """
+    form = await request.form()
+    
+    from_number = str(form.get("From", ""))
+    to_number = str(form.get("To", ""))
+    body = str(form.get("Body", ""))
+    
+    print(f"Inbound SMS from {from_number}: {body}")
+    
+    if not from_number or not body:
+        return {"status": "ignored"}
+    
+    # Clean the phone number for lookup
+    clean_from = from_number.replace("+","").replace(" ","").replace("-","").replace("(","").replace(")","")
+    if clean_from.startswith("1") and len(clean_from) == 11:
+        clean_from_variants = [
+            from_number,
+            f"({clean_from[1:4]}) {clean_from[4:7]}-{clean_from[7:]}",
+            f"{clean_from[1:4]}-{clean_from[4:7]}-{clean_from[7:]}",
+            clean_from[1:],
+        ]
+    else:
+        clean_from_variants = [from_number, clean_from]
+    
+    conn = get_db()
+    
+    # Find which user sent to this business number
+    user_row = None
+    business_name = from_number
+    
+    for variant in clean_from_variants:
+        row = conn.execute("""
+            SELECT user_id, business_name FROM outreach_log 
+            WHERE business_phone LIKE ?
+            ORDER BY created_at DESC LIMIT 1
+        """, (f"%{variant[-7:]}%",)).fetchone()
+        if row:
+            user_row = row
+            business_name = row["business_name"]
+            break
+    
+    if user_row:
+        user_id = user_row["user_id"]
+        
+        # Save reply to DB
+        conn.execute("""
+            UPDATE outreach_log 
+            SET reply=?, reply_time=datetime('now')
+            WHERE user_id=? AND business_phone LIKE ?
+            AND (reply IS NULL OR reply='')
+        """, (body, user_id, f"%{from_number[-7:]}%"))
+        conn.commit()
+        
+        # Detect reply sentiment
+        reply_lower = body.lower()
+        if any(w in reply_lower for w in ["yes","hire","interview","available","interested","opening","come in"]):
+            status = "interested"
+        elif any(w in reply_lower for w in ["not hiring","no opening","unfortunately","not at this time"]):
+            status = "not_hiring"
+        else:
+            status = "pending"
+        
+        # Push to user in real time via SSE
+        if user_id in active_connections:
+            queue = active_connections[user_id]
+            await queue.put({
+                "type": "new_message",
+                "business_name": business_name,
+                "business_phone": from_number,
+                "body": body,
+                "direction": "inbound",
+                "status": status,
+                "time": "Just now"
+            })
+            print(f"Pushed real-time message to user {user_id}")
+    
+    conn.close()
+    
+    # Return TwiML (required by Twilio)
+    return Response(
+        content="<?xml version=\'1.0\' encoding=\'UTF-8\'?><Response></Response>",
+        media_type="text/xml"
+    )
+
 @app.get("/health")
 async def health():
     return {"status":"online","service":"WorkBridge API","version":"1.0.0","message":"Built for Hugo. 🌉"}

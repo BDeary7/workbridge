@@ -46,9 +46,94 @@ export default function Messages() {
     setUname(localStorage.getItem('wb_name')||'')
     setLang(localStorage.getItem('wb_lang')||'en')
     loadThreads()
-    // Poll for new messages every 10 seconds
-    pollRef.current = setInterval(loadThreads, 10000)
-    return ()=>{ if(pollRef.current) clearInterval(pollRef.current) }
+    
+    // Connect to real-time SSE stream
+    const token = tok()
+    if(token){
+      // Get user ID from token (decode JWT)
+      try{
+        const payload = JSON.parse(atob(token.split('.')[1] || ''))
+        const userId = payload.sub || payload.user_id || payload.id
+        if(userId){
+          const es = new EventSource(`${API}/messages/stream/${userId}`)
+          
+          es.onmessage = (event)=>{
+            const data = JSON.parse(event.data)
+            if(data.type === 'new_message'){
+              // Add new inbound message in real time
+              setThreads(prev => {
+                const updated = [...prev]
+                const threadIdx = updated.findIndex(t => 
+                  t.business_phone === data.business_phone
+                )
+                const newMsg = {
+                  id: Date.now(),
+                  direction: 'inbound' as const,
+                  body: data.body,
+                  created_at: 'Just now',
+                  status: 'received'
+                }
+                if(threadIdx >= 0){
+                  updated[threadIdx] = {
+                    ...updated[threadIdx],
+                    messages: [...updated[threadIdx].messages, newMsg],
+                    last_message: data.body,
+                    last_time: 'Just now',
+                    status: data.status || 'pending',
+                    unread: updated[threadIdx].unread + 1
+                  }
+                } else {
+                  updated.unshift({
+                    business_name: data.business_name,
+                    business_phone: data.business_phone,
+                    last_message: data.body,
+                    last_time: 'Just now',
+                    unread: 1,
+                    status: data.status || 'pending',
+                    messages: [newMsg]
+                  })
+                }
+                return updated
+              })
+              // Update active thread if viewing it
+              setActive(prev => {
+                if(prev?.business_phone === data.business_phone){
+                  return {
+                    ...prev,
+                    status: data.status || prev.status,
+                    messages: [...prev.messages, {
+                      id: Date.now(),
+                      direction: 'inbound' as const,
+                      body: data.body,
+                      created_at: 'Just now',
+                      status: 'received'
+                    }]
+                  }
+                }
+                return prev
+              })
+              // Play notification sound
+              try{ new Audio('/notification.mp3').play() }catch{}
+            }
+          }
+          
+          es.onerror = ()=>{
+            es.close()
+            // Fallback to polling if SSE fails
+            pollRef.current = setInterval(loadThreads, 8000)
+          }
+          
+          return ()=>{ 
+            es.close()
+            if(pollRef.current) clearInterval(pollRef.current) 
+          }
+        }
+      }catch(e){
+        // Fallback polling
+        pollRef.current = setInterval(loadThreads, 8000)
+        return ()=>{ if(pollRef.current) clearInterval(pollRef.current) }
+      }
+    }
   },[])
 
   useEffect(()=>{
