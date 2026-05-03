@@ -48,7 +48,7 @@ THE HUGO STORY:
 ## LIVE INFRASTRUCTURE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Frontend:  https://workbridge-rho.vercel.app
+Frontend:  https://workbridgesms.com
 Backend:   https://workbridge-api.onrender.com
 GitHub:    https://github.com/BDeary7/workbridge
 Account:   brandondeary777@gmail.com

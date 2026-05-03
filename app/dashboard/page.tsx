@@ -709,7 +709,7 @@ export default function Dashboard(){
           </div>
         )}
 
-        {view==='history'&&(
+        {view==='messages'&&(
           <div>
             <h2 style={{fontSize:24,fontWeight:900,marginBottom:20}}>SMS History</h2>
             {hist.length===0?<div style={{padding:32,textAlign:'center',color:'rgba(240,244,248,.4)',background:'rgba(255,255,255,.03)',borderRadius:16,border:'1px solid rgba(255,255,255,.08)'}}>No messages yet. Start a mission to connect!</div>

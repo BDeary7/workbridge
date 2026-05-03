@@ -279,8 +279,8 @@ async def purchase_credits(req: CreditPurchaseRequest, request: Request):
         payment_method_types=["card"],
         line_items=[{"price_data":{"currency":"usd","product_data":{"name":f"WorkBridge {req.credits} SMS Credits"},"unit_amount":price},"quantity":1}],
         mode="payment",
-        success_url="https://workbridge-rho.vercel.app/success",
-        cancel_url="https://workbridge-rho.vercel.app/credits",
+        success_url="https://workbridgesms.com/success",
+        cancel_url="https://workbridgesms.com/credits",
         metadata={"user_id":user["id"],"credits":req.credits}
     )
     conn = get_db()
@@ -328,7 +328,7 @@ async def get_balance(request: Request):
 @app.post("/coach/chat")
 async def coach_chat(req: CoachRequest):
     if not ANTHROPIC_API_KEY:
-        return {"reply": "Coach Ray is coming soon! Visit workbridge-rho.vercel.app to get started."}
+        return {"reply": "Coach Ray is coming soon! Visit workbridgesms.com to get started."}
     try:
         async with httpx.AsyncClient() as client:
             res = await client.post(

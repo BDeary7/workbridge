@@ -380,6 +380,175 @@ async def schedule_interview(request: Request):
         "interview_time": interview_time
     }
 
+
+@app.get("/messages/threads")
+async def get_threads(request: Request):
+    """Get all message threads for user"""
+    user = get_user(request)
+    conn = get_db()
+    
+    # Create outreach_log if not exists
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS outreach_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            business_name TEXT,
+            business_phone TEXT,
+            message TEXT,
+            status TEXT DEFAULT 'sent',
+            reply TEXT,
+            reply_time TEXT,
+            mission TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    
+    rows = conn.execute("""
+        SELECT business_name, business_phone, message, reply, 
+               reply_time, status, created_at
+        FROM outreach_log 
+        WHERE user_id=?
+        ORDER BY created_at DESC
+    """, (user["id"],)).fetchall()
+    conn.close()
+    
+    threads = []
+    seen = set()
+    for row in rows:
+        phone = row["business_phone"]
+        if phone in seen:
+            continue
+        seen.add(phone)
+        
+        messages = []
+        messages.append({
+            "id": 1,
+            "direction": "outbound",
+            "body": row["message"],
+            "created_at": row["created_at"][:16],
+            "status": "delivered"
+        })
+        
+        thread_status = "pending"
+        last_message = row["message"]
+        last_time = "Just now"
+        
+        if row["reply"]:
+            messages.append({
+                "id": 2,
+                "direction": "inbound",
+                "body": row["reply"],
+                "created_at": row["reply_time"] or row["created_at"][:16],
+                "status": "received"
+            })
+            last_message = row["reply"]
+            last_time = row["reply_time"] or "Recently"
+            
+            reply_lower = row["reply"].lower()
+            if any(w in reply_lower for w in ["yes","hire","interview","available","interested","opening","position"]):
+                thread_status = "interested"
+            elif any(w in reply_lower for w in ["not hiring","no opening","no position","not available","unfortunately"]):
+                thread_status = "not_hiring"
+        
+        threads.append({
+            "business_name": row["business_name"],
+            "business_phone": row["business_phone"],
+            "last_message": last_message[:80],
+            "last_time": last_time,
+            "unread": 1 if row["reply"] and thread_status == "interested" else 0,
+            "status": thread_status,
+            "messages": messages
+        })
+    
+    return {"threads": threads}
+
+
+@app.post("/messages/reply")
+async def send_reply(request: Request):
+    """Send reply to employer"""
+    user = get_user(request)
+    data = await request.json()
+    
+    to_phone = data.get("to", "")
+    message = data.get("message", "")
+    business_name = data.get("business_name", "")
+    
+    if TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM:
+        from twilio.rest import Client as TwilioClient
+        twilio_client = TwilioClient(TWILIO_SID, TWILIO_TOKEN)
+        try:
+            phone = to_phone.replace(" ","").replace("-","").replace("(","").replace(")","").replace("+","")
+            if not phone.startswith("1"):
+                phone = "1" + phone
+            twilio_client.messages.create(
+                body=message,
+                from_=TWILIO_FROM,
+                to=f"+{phone}"
+            )
+        except Exception as e:
+            print(f"Reply SMS error: {e}")
+    
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO outreach_log (user_id, business_name, business_phone, message, mission)
+        VALUES (?,?,?,?,?)
+    """, (user["id"], business_name, to_phone, message, "reply"))
+    conn.commit()
+    conn.close()
+    
+    return {"status": "sent"}
+
+
+@app.post("/coach/suggest-reply")
+async def suggest_reply(request: Request):
+    """Ray suggests a reply based on conversation context"""
+    user = get_user(request)
+    data = await request.json()
+    
+    business_name = data.get("business_name", "")
+    last_message = data.get("last_message", "")
+    thread = data.get("thread", [])
+    user_name = data.get("user_name", "")
+    
+    suggestion = f"Thank you for your response! I am very interested in the position at {business_name}. I am available for an interview at your earliest convenience. What time works best for you?"
+    
+    if ANTHROPIC_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": ANTHROPIC_API_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-opus-4-5",
+                        "max_tokens": 150,
+                        "messages": [{
+                            "role": "user",
+                            "content": f"""You are Coach Ray helping {user_name} reply to a job inquiry.
+
+Business: {business_name}
+Their last message: {last_message}
+
+Write a professional, warm reply IN ENGLISH (to send to the employer).
+- Under 160 characters
+- Professional and enthusiastic  
+- Move toward scheduling an interview if they expressed interest
+- If they asked for resume, acknowledge and say you will provide it
+- Return ONLY the reply text"""
+                        }]
+                    }
+                )
+                d = resp.json()
+                if d.get("content"):
+                    suggestion = d["content"][0]["text"].strip()
+        except Exception as e:
+            print(f"Suggest reply error: {e}")
+    
+    return {"suggestion": suggestion}
+
 @app.get("/health")
 async def health():
     return {"status":"online","service":"WorkBridge API","version":"1.0.0","message":"Built for Hugo. 🌉"}
@@ -1007,8 +1176,8 @@ async def purchase_credits(req: CreditPurchaseRequest, request: Request):
         payment_method_types=["card"],
         line_items=[{"price_data":{"currency":"usd","product_data":{"name":f"WorkBridge {req.credits} SMS Credits"},"unit_amount":price},"quantity":1}],
         mode="payment",
-        success_url="https://workbridge-rho.vercel.app/dashboard",
-        cancel_url="https://workbridge-rho.vercel.app/dashboard",
+        success_url="https://workbridgesms.com/dashboard",
+        cancel_url="https://workbridgesms.com/dashboard",
         metadata={"user_id":user["id"],"credits":req.credits}
     )
     conn = get_db()
@@ -1114,7 +1283,7 @@ async def get_balance(request: Request):
 @app.post("/coach/chat")
 async def coach_chat(req: CoachRequest):
     if not ANTHROPIC_API_KEY:
-        return {"reply": "Coach Ray is coming soon! Visit workbridge-rho.vercel.app to get started."}
+        return {"reply": "Coach Ray is coming soon! Visit workbridgesms.com to get started."}
     try:
         async with httpx.AsyncClient() as client:
             res = await client.post(
