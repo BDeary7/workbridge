@@ -276,7 +276,7 @@ export default function Dashboard(){
   const ref = useRef<HTMLDivElement>(null)
   const tok = () => typeof window !== 'undefined' ? localStorage.getItem('wb_token') : null
 
-  useEffect(()=>{
+  useEffect(()=>{(async()=>{
     const token = tok()
     if(!token){router.push('/login');return}
     setUname(localStorage.getItem('wb_name')||'there')
@@ -288,12 +288,28 @@ export default function Dashboard(){
           setActiveMissions(parsed)
         }
       }catch{}
+    } else {
+      // Fetch from API for existing users who predate onboarding
+      try{
+        const t = localStorage.getItem('wb_token')
+        if(t){
+          const res = await fetch(`${API}/user/missions`,{
+            headers:{Authorization:`Bearer ${t}`}
+          })
+          const d = await res.json()
+          if(d.missions && d.missions.length > 0){
+            setActiveMissions(d.missions)
+            localStorage.setItem('wb_missions', JSON.stringify(d.missions))
+          }
+        }
+      }catch{}
     }
     // Trigger glow on load
     setTimeout(()=>{setGlowing(true); setTimeout(()=>setGlowing(false),3000)},500)
     setUserPhone(localStorage.getItem('wb_phone')||'')
     setUserEmail(localStorage.getItem('wb_email')||'')
     initApp(token)
+  })();
   },[])
 
   useEffect(()=>{ref.current?.scrollIntoView({behavior:'smooth'})},[msgs])
@@ -486,23 +502,23 @@ export default function Dashboard(){
     if(!outreachMessage||sending)return
     setSending(true)
     const t = tok()
-    setMsgs(m=>[...m,{r:'a',c:'Sending your message to businesses in your area now... 📤'}])
+    const lang = localStorage.getItem('wb_lang')||'en'
+    setMsgs(m=>[...m,{r:'a',c:lang==='es'?'Enviando tu mensaje a las empresas ahora... 📤':'Sending your message to businesses now... 📤'}])
     try{
-      const res = await fetch(`${API}/sms/blast`,{
+      const res = await fetch(`${API}/coach/agent`,{
         method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
         body:JSON.stringify({
-          message: outreachMessage,
-          zip_code: ans.zip_code||'90001',
-          category: activeMission||'job',
-          position: ans.position||ans.job_type||'',
-          businesses: []
+          mission: activeMission||'job',
+          answers: ans,
+          language: lang
         })
       })
       const d = await res.json()
-      setMsgs(m=>[...m,{r:'a',c:`✅ Sent! Your message is going out to ${d.count||'local'} businesses. I will notify you as soon as someone responds. Keep an eye on your SMS — replies come in real time.`}])
+      const successMsg = d.ray_response || `✅ Sent to ${d.messages_sent||0} businesses! Check your Message Portal for replies.`
+      setMsgs(m=>[...m,{r:'a',c:successMsg},{r:'a',c:'',showPortal:true}])
     }catch{
-      setMsgs(m=>[...m,{r:'a',c:'Messages queued! Businesses will be contacted shortly.'}])
+      setMsgs(m=>[...m,{r:'a',c:'Messages queued! Check Message Portal for replies.'}])
     }
     setSending(false)
     setOutreachMessage('')
@@ -521,7 +537,7 @@ export default function Dashboard(){
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           messages:[...msgs.filter(m=>!m.o),{r:'u',c:text}].map(m=>({role:m.r==='a'?'assistant':'user',content:m.c})),
-          language:'en'
+          language:localStorage.getItem('wb_lang')||'en'
         })
       })
       const d = await res.json()
@@ -571,7 +587,7 @@ export default function Dashboard(){
         {view==='missions'&&(
           <div>
             <h2 style={{fontSize:26,fontWeight:900,marginBottom:6}}>What can Coach Ray help you with?</h2>
-            <p style={{color:'rgba(240,244,248,.55)',fontSize:14,marginBottom:28}}>Choose a mission — Coach Ray becomes a specialist and asks the right questions to connect you with results.</p>
+            <p style={{color:'rgba(240,244,248,.85)',fontSize:14,marginBottom:28}}>{activeMissions.length > 0 ? `${activeMissions.length} mission${activeMissions.length>1?'s':''} active — your Coach Ray specialist${activeMissions.length>1?' s':''} ready.` : 'Choose a mission — Coach Ray becomes your specialist.'}</p>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:14}}>
               {(activeMissions.length > 0 ? MISSIONS.filter(m=>activeMissions.includes(m.id)) : MISSIONS).map(m=>(
                 <div key={m.id} className="mc" onClick={()=>startMission(m.id)}

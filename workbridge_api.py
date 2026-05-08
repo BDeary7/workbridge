@@ -53,6 +53,14 @@ def init_db():
         created_at TEXT DEFAULT (datetime('now'))
     );
     """)
+    conn.execute("""CREATE TABLE IF NOT EXISTS conversations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, business_name TEXT, business_phone TEXT,
+        last_message TEXT, last_direction TEXT DEFAULT 'outbound',
+        status TEXT DEFAULT 'active', mission TEXT, unread INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )""")
     conn.commit()
     conn.close()
 
