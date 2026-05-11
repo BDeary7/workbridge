@@ -405,7 +405,7 @@ export default function Dashboard(){
         const outreachMsg = msgData.message || `Hi, my name is ${uname}. I am looking for work in ${currentAnswers.category||currentMission} and am available immediately. Do you have any openings?`
         
         setOutreachMessage(outreachMsg)
-        setMsgs(m=>[...m,{r:'a',c:`Here is your outreach message that I will send to local businesses on your behalf:\n\n"${outreachMsg}"\n\nYou will be contacted via SMS, email, or phone based on how businesses respond. I will manage all replies and notify you when someone is interested.\n\nReady to send to ${currentAnswers.zip_code||'your area'} businesses?`,showSend:true}])
+        setMsgs(m=>[...m,{r:'a',c:`Here is your outreach message that I will send to local businesses on your behalf:\n\n"${outreachMsg}"\n\nYou will be contacted via SMS, email, or phone based on how businesses respond. I will manage all replies and notify you when someone is interested.\n\nReady to send to businesses in ${currentAnswers.zip_code||'your area'}? Coach Ray will text them in English and manage all replies for you.`,showSend:true}])
       }catch{
         setMsgs(m=>[...m,{r:'a',c:`Your profile is saved! I will start reaching out to businesses in your area now. You will receive responses directly via SMS.`}])
       }
