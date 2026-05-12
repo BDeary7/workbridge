@@ -272,6 +272,7 @@ export default function Dashboard(){
   const [questions, setQuestions] = useState<any[]>([])
   const [showContactOptions, setShowContactOptions] = useState<boolean>(false)
   const [outreachMessage, setOutreachMessage] = useState<string>('')
+  const [waitingForNarrative, setWaitingForNarrative] = useState(false)
   const [sending, setSending] = useState<boolean>(false)
   const ref = useRef<HTMLDivElement>(null)
   const tok = () => typeof window !== 'undefined' ? localStorage.getItem('wb_token') : null
@@ -527,6 +528,55 @@ export default function Dashboard(){
   const sendChat = async()=>{
     const text = inp.trim()
     if(!text||loading)return
+
+    // NARRATIVE_INTERCEPT: capture free-text narrative answer
+    if(waitingForNarrative){
+      setWaitingForNarrative(false)
+      const narrative = text.trim()
+      setText('')
+      setLoading(true)
+      const allAnswers = {...currentAnswers, narrative}
+      setMsgs(m=>[...m,{r:'u',c:narrative}])
+      try{
+        const res = await fetch(`${API}/coach/agent`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':`Bearer ${tok()}`},
+          body:JSON.stringify({
+            generate_outreach: true,
+            answers: allAnswers,
+            language: localStorage.getItem('wb_lang')||'en'
+          })
+        })
+        const d = await res.json()
+        const outreachMsg = d.message || d.reply || ''
+        if(outreachMsg){
+          setOutreachMessage(outreachMsg)
+          const lang = localStorage.getItem('wb_lang')||'en'
+          const preview = lang==='es'
+            ? `Aquí está tu mensaje de trabajo que enviaré a empleadores locales:
+
+"${outreachMsg}"
+
+Te contactarán por SMS, email o teléfono. ¿Listo para enviar?`
+            : `Here is your outreach message I will send to local employers on your behalf:
+
+"${outreachMsg}"
+
+Employers will contact you by SMS, email, or phone when interested.
+
+Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
+          setMsgs(m=>[...m,{r:'a',c:preview,showSend:true}])
+        } else {
+          setMsgs(m=>[...m,{r:'a',c:'I had trouble writing your message — let me try again. Tell me a bit more about your experience!'}])
+          setWaitingForNarrative(true)
+        }
+      }catch{
+        setMsgs(m=>[...m,{r:'a',c:'Connection issue — please try again!'}])
+        setWaitingForNarrative(true)
+      }
+      setLoading(false)
+      return
+    }
     if(qi>=0&&!done){advance(text);setInp('');return}
     setInp('')
     setMsgs(m=>[...m,{r:'u',c:text}])
