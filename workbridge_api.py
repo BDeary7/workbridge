@@ -728,7 +728,10 @@ async def generate_outreach_message(request: Request):
                 timeout=15)
             d = r.json()
             if d.get("content"):
-                message = d["content"][0]["text"].strip().strip('"')
+                raw = d["content"][0]["text"].strip().strip('"')
+                # Remove any URLs or fake profile links
+                import re
+                message = re.sub(r'https?://\S+', '', raw).strip()
     except Exception as e:
         print(f"Claude error: {e}")
     return {"message": message, "reply": message}
