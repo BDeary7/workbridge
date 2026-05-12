@@ -264,9 +264,9 @@ Return ONLY the SMS text."""
     
     # Step 4: Send SMS to businesses via Twilio
     sent_count = 0
-    if TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM and businesses:
+    if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM_NUMBER and businesses:
         from twilio.rest import Client as TwilioClient
-        twilio_client = TwilioClient(TWILIO_SID, TWILIO_TOKEN)
+        twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         
         conn = get_db()
         for biz in businesses[:10]:
@@ -277,7 +277,7 @@ Return ONLY the SMS text."""
                 
                 twilio_client.messages.create(
                     body=english_message,
-                    from_=TWILIO_FROM,
+                    from_=TWILIO_FROM_NUMBER,
                     to=f"+{phone}"
                 )
                 
@@ -360,14 +360,14 @@ async def schedule_interview(request: Request):
     # Send SMS confirmations
     if TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM:
         from twilio.rest import Client as TwilioClient
-        twilio_client = TwilioClient(TWILIO_SID, TWILIO_TOKEN)
+        twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         
         try:
             if user_phone:
                 phone = user_phone.replace(" ","").replace("-","").replace("(","").replace(")","")
                 if not phone.startswith("+"):
                     phone = "+1" + phone.replace("+","")
-                twilio_client.messages.create(body=user_msg, from_=TWILIO_FROM, to=phone)
+                twilio_client.messages.create(body=user_msg, from_=TWILIO_FROM_NUMBER, to=phone)
         except Exception as e:
             print(f"User SMS error: {e}")
         
@@ -376,7 +376,7 @@ async def schedule_interview(request: Request):
                 emp_phone = employer_phone.replace(" ","").replace("-","").replace("(","").replace(")","")
                 if not emp_phone.startswith("+"):
                     emp_phone = "+1" + emp_phone.replace("+","")
-                twilio_client.messages.create(body=employer_msg, from_=TWILIO_FROM, to=emp_phone)
+                twilio_client.messages.create(body=employer_msg, from_=TWILIO_FROM_NUMBER, to=emp_phone)
         except Exception as e:
             print(f"Employer SMS error: {e}")
     
@@ -483,14 +483,14 @@ async def send_reply(request: Request):
     
     if TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM:
         from twilio.rest import Client as TwilioClient
-        twilio_client = TwilioClient(TWILIO_SID, TWILIO_TOKEN)
+        twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         try:
             phone = to_phone.replace(" ","").replace("-","").replace("(","").replace(")","").replace("+","")
             if not phone.startswith("1"):
                 phone = "1" + phone
             twilio_client.messages.create(
                 body=message,
-                from_=TWILIO_FROM,
+                from_=TWILIO_FROM_NUMBER,
                 to=f"+{phone}"
             )
         except Exception as e:
