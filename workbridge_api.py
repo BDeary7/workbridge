@@ -706,7 +706,7 @@ async def generate_outreach_message(request: Request):
         token = request.headers.get("Authorization", "").replace("Bearer ", "")
         if token:
             conn = get_db()
-            row = conn.execute("SELECT name FROM users WHERE token=?", (token,)).fetchone()
+            row = conn.execute("SELECT name FROM users WHERE api_token=?", (token,)).fetchone()
             conn.close()
             if row:
                 name = row["name"]
