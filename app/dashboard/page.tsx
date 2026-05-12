@@ -262,6 +262,8 @@ export default function Dashboard(){
   const [waking, setWaking] = useState<boolean>(true)
   const [ready, setReady] = useState<boolean>(false)
   const [hist, setHist] = useState<any[]>([])
+  const [activeThread, setActiveThread] = useState<number|null>(null)
+  const [threadReply, setThreadReply] = useState<string>('')
   const [appts, setAppts] = useState<any[]>([])
   const [msgs, setMsgs] = useState<any[]>([])
   const [inp, setInp] = useState<string>('')
@@ -504,22 +506,30 @@ export default function Dashboard(){
     setSending(true)
     const t = tok()
     const lang = localStorage.getItem('wb_lang')||'en'
-    setMsgs(m=>[...m,{r:'a',c:lang==='es'?'Enviando tu mensaje a las empresas ahora... 📤':'Sending your message to businesses now... 📤'}])
+    setMsgs(m=>[...m,{r:'a',c:lang==='es'?'📤 Buscando empresas y enviando tu mensaje ahora...':'📤 Finding local businesses and firing off your messages now...'}])
     try{
-      const res = await fetch(`${API}/coach/generate-message`,{
+      const res = await fetch(`${API}/coach/agent-search`,{
         method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
         body:JSON.stringify({
           mission: activeMission||'job',
           answers: ans,
+          zip_code: ans.zip_code||'90001',
+          category: ans.job_type||ans.category||'general',
+          position: ans.job_type||ans.position||'',
           language: lang
         })
       })
       const d = await res.json()
-      const successMsg = d.ray_response || `✅ Sent to ${d.messages_sent||0} businesses! Check your Message Portal for replies.`
+      const sent = d.messages_sent||0
+      const found = d.businesses_found||0
+      const confirm = d.user_confirmation||''
+      const successMsg = lang==='es'
+        ? (confirm || `✅ ¡Mensajes enviados a ${sent} empresas! Revisa tu portal para respuestas.`)
+        : `✅ Sent to ${sent} of ${found} businesses! I will notify you the moment someone replies.`
       setMsgs(m=>[...m,{r:'a',c:successMsg},{r:'a',c:'',showPortal:true}])
     }catch{
-      setMsgs(m=>[...m,{r:'a',c:'Messages queued! Check Message Portal for replies.'}])
+      setMsgs(m=>[...m,{r:'a',c:lang==='es'?'Mensajes en cola. ¡Revisa tu portal!':'Messages queued! Check your Portal for replies.',showPortal:true}])
     }
     setSending(false)
     setOutreachMessage('')
@@ -724,6 +734,30 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
                         </button>
                       </div>
                     )}
+                    {m.showSend&&(
+                      <div style={{paddingLeft:36,marginTop:12}}>
+                        <button onClick={sendOutreach} disabled={sending} className="b"
+                          style={{padding:'13px 28px',borderRadius:100,border:'none',
+                            background:sending?`rgba(16,185,129,.4)`:`linear-gradient(135deg,${G},#059669)`,
+                            color:W,fontWeight:800,fontSize:15,cursor:sending?'default':'pointer',
+                            boxShadow:sending?'none':'0 4px 20px rgba(16,185,129,.4)',
+                            display:'flex',alignItems:'center',gap:8,transition:'all .2s'}}>
+                          {sending?'📤 Sending...':'📤 Send to Businesses'}
+                        </button>
+                      </div>
+                    )}
+                    {m.showPortal&&(
+                      <div style={{paddingLeft:36,marginTop:12}}>
+                        <button onClick={()=>router.push('/messages')} className="b"
+                          style={{padding:'13px 28px',borderRadius:100,border:`2px solid ${A}`,
+                            background:`rgba(245,158,11,.12)`,
+                            color:A,fontWeight:800,fontSize:15,cursor:'pointer',
+                            boxShadow:'0 4px 20px rgba(245,158,11,.25)',
+                            display:'flex',alignItems:'center',gap:8}}>
+                          💬 Open Message Portal
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -776,24 +810,123 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
         )}
 
         {view==='messages'&&(
-          <div>
-            <h2 style={{fontSize:24,fontWeight:900,marginBottom:20}}>SMS History</h2>
-            {hist.length===0?<div style={{padding:32,textAlign:'center',color:'rgba(240,244,248,.4)',background:'rgba(255,255,255,.03)',borderRadius:16,border:'1px solid rgba(255,255,255,.08)'}}>No messages yet. Start a mission to connect!</div>
-            :<div style={{display:'grid',gap:8}}>{hist.map((h,i)=>(
-              <div key={i} style={{padding:'16px 18px',borderRadius:12,background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)'}}>
-                <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-                  <span style={{fontWeight:700}}>{h.recipient_name}</span>
-                  <span style={{fontSize:12,padding:'3px 10px',borderRadius:100,fontWeight:700,
-                    background:h.status==='replied'?'rgba(16,185,129,.15)':'rgba(245,158,11,.15)',
-                    color:h.status==='replied'?G:A}}>{h.status==='replied'?'💬 Replied':'✅ Sent'}</span>
-                </div>
-                <div style={{fontSize:13,color:'rgba(240,244,248,.7)'}}>{h.message_text?.slice(0,120)}...</div>
-                {h.reply_text&&<div style={{marginTop:8,padding:'8px 12px',borderRadius:8,background:'rgba(16,185,129,.08)',fontSize:13,color:G,fontWeight:600}}>💬 "{h.reply_text}"</div>}
-              </div>
-            ))}</div>}
+          <div style={{height:'calc(100vh - 180px)',display:'flex',gap:0,borderRadius:16,overflow:'hidden',border:'1px solid rgba(255,255,255,.08)'}}>
+            {/* LEFT PANEL — threads */}
+            <div style={{width:260,flexShrink:0,borderRight:'1px solid rgba(255,255,255,.08)',overflowY:'auto',background:'rgba(255,255,255,.02)'}}>
+              <div style={{padding:'16px 14px 10px',fontSize:11,fontWeight:800,color:'rgba(240,244,248,.4)',letterSpacing:'1.5px'}}>CONVERSATIONS</div>
+              {hist.length===0
+                ? <div style={{padding:24,textAlign:'center',color:'rgba(240,244,248,.3)',fontSize:13}}>No outreach sent yet.<br/>Start a mission!</div>
+                : hist.map((h,i)=>(
+                  <div key={i} onClick={()=>setActiveThread(i)}
+                    style={{padding:'12px 14px',cursor:'pointer',borderBottom:'1px solid rgba(255,255,255,.05)',
+                      background:activeThread===i?'rgba(16,185,129,.08)':'transparent',
+                      borderLeft:activeThread===i?'3px solid #10B981':'3px solid transparent'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                      <span style={{fontWeight:700,fontSize:13,color:'#F0F4F8'}}>{h.recipient_name?.slice(0,20)}</span>
+                      <span style={{fontSize:10,color:'rgba(240,244,248,.3)'}}>
+                        {h.replied_at?'replied':h.status==='sent'?'sent':'pending'}
+                      </span>
+                    </div>
+                    <div style={{fontSize:11,color:h.reply_text?'#10B981':'rgba(240,244,248,.4)',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
+                      {h.reply_text?'💬 '+h.reply_text.slice(0,30):h.message_text?.slice(0,30)}...
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+            {/* RIGHT PANEL — conversation */}
+            <div style={{flex:1,display:'flex',flexDirection:'column',background:'#080C12'}}>
+              {activeThread===null
+                ? <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(240,244,248,.3)',fontSize:14}}>
+                    Select a conversation →
+                  </div>
+                : <>
+                  <div style={{padding:'14px 18px',borderBottom:'1px solid rgba(255,255,255,.08)',display:'flex',alignItems:'center',gap:10}}>
+                    <div style={{width:36,height:36,borderRadius:'50%',background:'rgba(16,185,129,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🏢</div>
+                    <div>
+                      <div style={{fontWeight:800,fontSize:14}}>{hist[activeThread]?.recipient_name}</div>
+                      <div style={{fontSize:11,color:'rgba(240,244,248,.4)'}}>{hist[activeThread]?.recipient_phone}</div>
+                    </div>
+                    <div style={{marginLeft:'auto',padding:'4px 12px',borderRadius:100,fontSize:11,fontWeight:700,
+                      background:hist[activeThread]?.reply_text?'rgba(16,185,129,.15)':'rgba(245,158,11,.12)',
+                      color:hist[activeThread]?.reply_text?'#10B981':'#F59E0B'}}>
+                      {hist[activeThread]?.reply_text?'● Replied':'● Sent'}
+                    </div>
+                  </div>
+                  <div style={{flex:1,overflowY:'auto',padding:'20px 16px',display:'flex',flexDirection:'column',gap:10}}>
+                    {/* Outbound message */}
+                    <div style={{display:'flex',justifyContent:'flex-end'}}>
+                      <div style={{maxWidth:'72%',padding:'11px 15px',borderRadius:'16px 16px 4px 16px',
+                        background:'linear-gradient(135deg,#F59E0B,#D97706)',color:'#080C12',fontSize:13,fontWeight:600,lineHeight:1.5}}>
+                        {hist[activeThread]?.message_text}
+                        <div style={{fontSize:10,marginTop:4,opacity:.6,textAlign:'right'}}>
+                          ✓✓ {hist[activeThread]?.sent_at?new Date(hist[activeThread].sent_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'Sent'}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Inbound reply */}
+                    {hist[activeThread]?.reply_text&&(
+                      <div style={{display:'flex',justifyContent:'flex-start',gap:8}}>
+                        <div style={{width:28,height:28,borderRadius:'50%',background:'rgba(16,185,129,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,flexShrink:0}}>🏢</div>
+                        <div style={{maxWidth:'72%',padding:'11px 15px',borderRadius:'16px 16px 16px 4px',
+                          background:'rgba(255,255,255,.09)',color:'#F0F4F8',fontSize:13,lineHeight:1.5}}>
+                          {hist[activeThread]?.reply_text}
+                          <div style={{fontSize:10,marginTop:4,opacity:.5}}>
+                            {hist[activeThread]?.replied_at?new Date(hist[activeThread].replied_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {/* Let Ray Reply button */}
+                    {hist[activeThread]?.reply_text&&(
+                      <div style={{display:'flex',justifyContent:'flex-end',marginTop:4}}>
+                        <button className="b" onClick={async()=>{
+                          const h = hist[activeThread]
+                          const t = tok()
+                          const res = await fetch(`${API}/coach/suggest-reply`,{
+                            method:'POST',
+                            headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
+                            body:JSON.stringify({business_name:h.recipient_name,last_message:h.reply_text,user_name:uname})
+                          })
+                          const d = await res.json()
+                          setThreadReply(d.suggestion||'')
+                        }} style={{padding:'8px 16px',borderRadius:100,border:'1px solid rgba(16,185,129,.4)',
+                          background:'rgba(16,185,129,.08)',color:'#10B981',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                          🤖 Let Ray Reply
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{padding:'10px 14px',borderTop:'1px solid rgba(255,255,255,.07)',display:'flex',gap:8}}>
+                    <input value={threadReply} onChange={e=>setThreadReply(e.target.value)}
+                      onKeyDown={async e=>{
+                        if(e.key==='Enter'&&threadReply.trim()){
+                          const h = hist[activeThread]; const t = tok()
+                          await fetch(`${API}/messages/reply`,{method:'POST',
+                            headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
+                            body:JSON.stringify({to:h.recipient_phone,message:threadReply,business_name:h.recipient_name})})
+                          setThreadReply('')
+                        }
+                      }}
+                      placeholder="Reply to employer..."
+                      style={{flex:1,padding:'10px 14px',borderRadius:100,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',color:'#F0F4F8',fontSize:13}}/>
+                    <button className="b" onClick={async()=>{
+                      if(!threadReply.trim())return
+                      const h = hist[activeThread]; const t = tok()
+                      await fetch(`${API}/messages/reply`,{method:'POST',
+                        headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
+                        body:JSON.stringify({to:h.recipient_phone,message:threadReply,business_name:h.recipient_name})})
+                      setThreadReply('')
+                    }} style={{padding:'10px 20px',borderRadius:100,border:'none',
+                      background:'linear-gradient(135deg,#10B981,#059669)',color:'#F0F4F8',fontWeight:700,fontSize:13,cursor:'pointer'}}>
+                      Send
+                    </button>
+                  </div>
+                </>
+              }
+            </div>
           </div>
         )}
-
         {view==='appointments'&&(
           <div>
             <h2 style={{fontSize:24,fontWeight:900,marginBottom:20}}>Appointments</h2>
