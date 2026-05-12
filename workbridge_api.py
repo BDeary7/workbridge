@@ -696,6 +696,43 @@ async def twilio_webhook(request: Request):
         media_type="text/xml"
     )
 
+
+@app.post("/coach/generate-message")
+async def generate_outreach_message(request: Request):
+    data = await request.json()
+    answers = data.get("answers", {})
+    name = ""
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if token:
+            conn = get_db()
+            row = conn.execute("SELECT name FROM users WHERE token=?", (token,)).fetchone()
+            conn.close()
+            if row:
+                name = row["name"]
+    except: pass
+    job_type = answers.get("job_type", answers.get("work_type", "professional services"))
+    zip_code = answers.get("zip_code", "")
+    narrative = answers.get("narrative", "")
+    availability = answers.get("availability", "Full-time")
+    fallback = f"Hi, my name is {name}. I am looking for {job_type} work in the {zip_code} area, available {availability.lower()}. Do you have any openings?"
+    message = fallback
+    try:
+        import httpx, os
+        key = os.getenv("ANTHROPIC_API_KEY")
+        if key and narrative:
+            prompt = f"Write a professional SMS job outreach under 160 characters IN ENGLISH. Name:{name} Job:{job_type} ZIP:{zip_code} Experience:{narrative[:300]}. Return ONLY the message text."
+            r = httpx.post("https://api.anthropic.com/v1/messages",
+                headers={"x-api-key":key,"anthropic-version":"2023-06-01","content-type":"application/json"},
+                json={"model":"claude-haiku-4-5-20251001","max_tokens":200,"messages":[{"role":"user","content":prompt}]},
+                timeout=15)
+            d = r.json()
+            if d.get("content"):
+                message = d["content"][0]["text"].strip().strip('"')
+    except Exception as e:
+        print(f"Claude error: {e}")
+    return {"message": message, "reply": message}
+
 @app.get("/health")
 async def health():
     return {"status":"online","service":"WorkBridge API","version":"1.0.0","message":"Built for Hugo. 🌉"}

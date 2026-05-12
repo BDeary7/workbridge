@@ -506,7 +506,7 @@ export default function Dashboard(){
     const lang = localStorage.getItem('wb_lang')||'en'
     setMsgs(m=>[...m,{r:'a',c:lang==='es'?'Enviando tu mensaje a las empresas ahora... 📤':'Sending your message to businesses now... 📤'}])
     try{
-      const res = await fetch(`${API}/coach/agent`,{
+      const res = await fetch(`${API}/coach/generate-message`,{
         method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
         body:JSON.stringify({
@@ -538,7 +538,7 @@ export default function Dashboard(){
       const allAnswers = {...currentAnswers, narrative}
       setMsgs(m=>[...m,{r:'u',c:narrative}])
       try{
-        const res = await fetch(`${API}/coach/agent`,{
+        const res = await fetch(`${API}/coach/generate-message`,{
           method:'POST',
           headers:{'Content-Type':'application/json','Authorization':`Bearer ${tok()}`},
           body:JSON.stringify({
