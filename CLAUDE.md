@@ -412,3 +412,46 @@ PENDING NEXT SESSION:
   Recover 1579 veteran leads
   Buyer marketplace /buyer/dashboard
   Chris at CrossLine — send demo link
+
+
+## SESSION LOG — MAY 12, 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+COMPLETED TODAY:
+  Render backend suspended — paid $1.50 invoice — RESTORED
+  Render now on PAID TIER (was free tier, hit hour limit)
+  Added POST /coach/generate-message endpoint
+    Uses Claude Haiku to write personalized <160 char SMS
+    Falls back to template if Claude unavailable
+    Strips URLs and fake links from output
+  Fixed Coach Ray narrative flow:
+    waitingForNarrative state captures free-text answer
+    Fixed intercept URL: /coach/agent → /coach/generate-message
+  Backend tested: clean personalized SMS confirmed
+  Pushed commits: a372199, 1d309df, 8506f2e
+
+TWILIO STATUS:
+  Number: (877) 417-3538
+  Verification: SUBMITTED May 11, deadline May 14
+  Webhook: SET
+
+COACH RAY FLOW (how it works now):
+  1. User picks mission — 9 button Q&A questions
+  2. Final question: describe experience — user types free text
+  3. waitingForNarrative=true captures this input
+  4. Frontend calls POST /coach/generate-message with all answers
+  5. Claude Haiku writes personalized SMS under 160 chars
+  6. Shows message + SEND button (showSend:true)
+  7. User clicks SEND — Twilio blasts 10 local businesses
+  8. PORTAL button appears — /messages real-time inbox
+
+PENDING NEXT SESSION:
+  Test full Hugo flow end to end on workbridgesms.com
+  Twilio verification approval by May 14
+  Add personal cell as Verified Caller ID for testing
+  Deploy TextAllData backend to Render
+  AWS Support call 1-800-280-4580
+  Recover 1579 veteran leads
+  Buyer marketplace /buyer/dashboard
+  Chris at CrossLine — send demo link
+  Gold: sister sending rose gold piece (~40K) — assay before selling
