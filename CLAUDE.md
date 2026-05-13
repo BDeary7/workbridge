@@ -1,5 +1,5 @@
 # WorkBridge — Master Project File
-# Last Updated: 2026-05-11
+# Last Updated: 2026-05-13
 # Built for Hugo. Every feature, every decision.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -74,7 +74,7 @@ SERVICES:
   GoDaddy:    All domains
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-## WORKBRIDGE COMPLETION: ~65%
+## WORKBRIDGE COMPLETION: ~75%
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 COMPLETED:
@@ -455,3 +455,45 @@ PENDING NEXT SESSION:
   Buyer marketplace /buyer/dashboard
   Chris at CrossLine — send demo link
   Gold: sister sending rose gold piece (~40K) — assay before selling
+
+## SESSION LOG — MAY 13 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+COMPLETED:
+  Full end-to-end Coach Ray test — all 27 endpoints verified
+  BUG 1 FIXED: name blank in outreach (WHERE api_token=?)
+  BUG 2 FIXED: SEND button wired to /coach/agent-search
+  BUG 3 FIXED: agent-search 500 (TWILIO_ACCOUNT_SID var names)
+  BUG 4 FIXED: showSend + showPortal buttons now render in chat
+  BUG 5 FIXED: EN/ES language toggle fully persistent
+    — React state (lang) instant UI updates
+    — localStorage survives page refresh
+    — /user/language saves to DB per account
+    — /credits/balance returns language on login
+  SMS Portal built — iMessage-style conversation UI
+    Left panel threads, right panel gold/grey bubbles
+    Let Ray Reply button, type-and-send reply bar
+  agent-search live: 10 businesses, SMS sent, name in message
+  Backend: 27 live endpoints, Render paid tier
+  Frontend: 993-line dashboard, all features intact
+
+NEW TECHNICAL RULES:
+  DB column is api_token not token (users table)
+  Twilio vars: TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER
+  lang is React state — never read localStorage directly
+  setLang() persists to localStorage AND POSTs /user/language
+  Backend file: workbridge_api.py (not Backend_worbridgesms.py)
+
+TWILIO STATUS:
+  Number: (877) 417-3538
+  Verification submitted May 11, deadline May 14
+  Add personal cell as Verified Caller ID to test now
+
+PENDING NEXT SESSION:
+  Twilio toll-free approval confirmation
+  Test full flow with real phone number
+  TextAllData backend deploy to Render
+  Connect textalldata.com DNS to Vercel
+  AWS Support 1-800-280-4580 (recover 1579 veteran leads)
+  Buyer marketplace /buyer/dashboard
+  Chris at CrossLine — send demo link
