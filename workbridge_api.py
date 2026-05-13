@@ -61,6 +61,37 @@ def init_db():
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
     )""")
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS study_progress (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL, mission TEXT NOT NULL,
+        subject TEXT NOT NULL DEFAULT 'general',
+        questions_attempted INTEGER DEFAULT 0,
+        questions_correct INTEGER DEFAULT 0,
+        last_score INTEGER DEFAULT 0,
+        weak_areas TEXT DEFAULT '[]',
+        streak_days INTEGER DEFAULT 0,
+        last_studied TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(user_id, mission, subject)
+    );
+    CREATE TABLE IF NOT EXISTS test_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL, mission TEXT NOT NULL,
+        subject TEXT NOT NULL, questions TEXT NOT NULL,
+        answers TEXT DEFAULT '{}', score INTEGER,
+        completed INTEGER DEFAULT 0,
+        started_at TEXT DEFAULT (datetime('now')), completed_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS coach_memory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL, mission TEXT NOT NULL,
+        key TEXT NOT NULL, value TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(user_id, mission, key)
+    );
+    """)
     conn.commit()
     conn.close()
 
@@ -98,6 +129,105 @@ class AppointmentRequest(BaseModel):
 
 class CreditPurchaseRequest(BaseModel):
     credits: int
+
+
+# ── COACH RAY MISSION SYSTEM PROMPTS ──────────────────────────────
+MISSION_SYSTEMS = {
+    "education": """You are Coach Ray, WorkBridge AI Education Specialist.
+You help users earn their GED/HiSET diploma and find free training programs.
+
+YOUR LIVE CAPABILITIES (use web_search tool freely):
+- Search for GED test dates and locations near user ZIP code
+- Find free GED prep resources and study guides online
+- Look up state-specific GED vs HiSET requirements
+- Generate practice questions for any GED subject
+- Find free community college programs and certifications
+- Look up registration at ged.com and hiset.ets.org
+
+GED SUBJECTS YOU TUTOR:
+1. Mathematical Reasoning (algebra, geometry, data analysis)
+2. Reasoning Through Language Arts (reading, writing, essay)
+3. Science (life, physical, earth science)
+4. Social Studies (civics, US history, economics, geography)
+
+TEACHING STYLE: Break concepts into simple steps. Use real-world examples.
+Celebrate every correct answer. Never make the user feel dumb.
+Respond in {lang}.""",
+
+    "job": """You are Coach Ray, WorkBridge AI Job Search Specialist.
+You help users find employment fast — especially those with barriers.
+
+YOUR LIVE CAPABILITIES (use web_search tool freely):
+- Search live job openings near any ZIP code
+- Find employers who hire without degree requirements
+- Look up wage rates by job type and ZIP
+- Find temp agencies and immediate-start positions
+- Identify certifications that boost pay fast
+
+PAY LADDER: Laborer $16-18/hr → OSHA 10 $18-20 → Forklift $20-24 →
+Journeyman $28-40 → Master License $45-72 → GC $75-150/hr
+Respond in {lang}.""",
+
+    "veteran": """You are Coach Ray, WorkBridge AI Veterans Specialist.
+You help veterans get every benefit they have earned.
+
+YOUR LIVE CAPABILITIES (use web_search tool freely):
+- Search current VA benefit rates and eligibility
+- Find VSOs near any ZIP code
+- Look up VA healthcare enrollment and disability claims
+- Find veteran hiring programs and priority employers
+- Search VA home loan current rates
+Respond in {lang}. Treat every veteran with full respect and urgency.""",
+
+    "housing": """You are Coach Ray, WorkBridge AI Housing Specialist.
+You help people find emergency shelter, transitional, and permanent housing.
+
+YOUR LIVE CAPABILITIES (use web_search tool freely):
+- Search emergency shelters near any ZIP
+- Find Section 8 / HUD applications open now
+- Look up rapid rehousing and rental assistance programs
+- Research tenant rights and eviction resources
+Respond in {lang}. This is urgent — move fast and be specific.""",
+
+    "default": """You are Coach Ray, WorkBridge AI Life Coach.
+Help people with jobs, education, housing, and benefits.
+Search the web whenever you need current information.
+Respond in {lang}. Be warm, direct, solution-focused."""
+}
+
+GED_QUESTIONS = {
+    "math": [
+        {"q":"A store sells apples for $0.75 each. Maria buys 8 apples and pays with $10. How much change does she get?","choices":["$4.00","$4.25","$3.75","$5.00"],"answer":0,"explanation":"8 x $0.75 = $6.00. Change = $10.00 - $6.00 = $4.00"},
+        {"q":"Solve for x: 3x + 7 = 22","choices":["x = 5","x = 4","x = 6","x = 3"],"answer":0,"explanation":"3x = 15, x = 5"},
+        {"q":"A rectangle is 12 ft long and 8 ft wide. What is its area?","choices":["96 sq ft","40 sq ft","80 sq ft","20 sq ft"],"answer":0,"explanation":"Area = 12 x 8 = 96 sq ft"},
+        {"q":"What is 35% of 200?","choices":["70","65","75","80"],"answer":0,"explanation":"0.35 x 200 = 70"},
+        {"q":"A car travels 60 mph for 2.5 hours. How far does it go?","choices":["150 miles","120 miles","140 miles","160 miles"],"answer":0,"explanation":"60 x 2.5 = 150 miles"},
+        {"q":"What is the slope of a line through (0,3) and (4,11)?","choices":["2","3","4","8"],"answer":0,"explanation":"(11-3)/(4-0) = 8/4 = 2"},
+        {"q":"Simplify: 4 squared + 3 squared - 5","choices":["20","25","15","12"],"answer":0,"explanation":"16 + 9 - 5 = 20"},
+        {"q":"A bag has 4 red, 3 blue, 3 green marbles. Probability of picking blue?","choices":["3/10","1/3","4/10","3/7"],"answer":0,"explanation":"3 blue out of 10 total = 3/10"}
+    ],
+    "science": [
+        {"q":"Which organelle is the powerhouse of the cell?","choices":["Mitochondria","Nucleus","Ribosome","Golgi apparatus"],"answer":0,"explanation":"Mitochondria produce ATP energy through cellular respiration"},
+        {"q":"What is the chemical formula for water?","choices":["H2O","CO2","NaCl","O2"],"answer":0,"explanation":"2 hydrogen atoms bonded to 1 oxygen atom"},
+        {"q":"Newton's First Law says an object in motion will:","choices":["Stay in motion unless acted on by force","Always slow down","Speed up","Change direction"],"answer":0,"explanation":"Law of Inertia - objects maintain state unless net force acts"},
+        {"q":"What process do plants use to make food from sunlight?","choices":["Photosynthesis","Respiration","Fermentation","Digestion"],"answer":0,"explanation":"CO2 + H2O + sunlight = glucose + O2"},
+        {"q":"Earth's atmosphere is primarily which gas?","choices":["Nitrogen (78%)","Oxygen (21%)","Carbon dioxide","Argon"],"answer":0,"explanation":"Nitrogen makes up about 78% of Earth's atmosphere"},
+        {"q":"What type of rock forms from cooled lava?","choices":["Igneous","Sedimentary","Metamorphic","Limestone"],"answer":0,"explanation":"Igneous rocks form when molten rock cools and solidifies"}
+    ],
+    "social_studies": [
+        {"q":"Which branch of US government makes the laws?","choices":["Legislative (Congress)","Executive (President)","Judicial (Courts)","Military"],"answer":0,"explanation":"Congress (Senate + House of Representatives) writes and passes laws"},
+        {"q":"What document declared US independence from Britain in 1776?","choices":["Declaration of Independence","Constitution","Bill of Rights","Magna Carta"],"answer":0,"explanation":"Declaration of Independence was signed July 4, 1776"},
+        {"q":"Supply and demand is a concept from which field?","choices":["Economics","History","Geography","Civics"],"answer":0,"explanation":"Economics studies production and distribution of goods"},
+        {"q":"The 13th Amendment abolished what?","choices":["Slavery","Prohibition","Child labor","Poll taxes"],"answer":0,"explanation":"13th Amendment (1865) abolished slavery throughout the United States"},
+        {"q":"Citizens voting for representatives to govern is called:","choices":["Representative Democracy","Monarchy","Dictatorship","Theocracy"],"answer":0,"explanation":"US is a representative democracy - citizens elect officials"}
+    ],
+    "reading": [
+        {"q":"Describing a character's thoughts and feelings in detail is called:","choices":["Characterization","Foreshadowing","Metaphor","Alliteration"],"answer":0,"explanation":"Characterization reveals a character's personality and inner life"},
+        {"q":"The main purpose of a thesis statement is to:","choices":["State the main argument","Give background info","Summarize conclusion","List facts"],"answer":0,"explanation":"A thesis statement tells the reader the main point of the essay"},
+        {"q":"'The sky wept' is an example of:","choices":["Personification","Simile","Hyperbole","Alliteration"],"answer":0,"explanation":"Personification gives human qualities to non-human things"},
+        {"q":"Context clues means:","choices":["Using surrounding words to understand unfamiliar words","Looking words up in a dictionary","Skipping unknown words","Reading the title first"],"answer":0,"explanation":"Context clues are nearby words that help you figure out an unfamiliar word"}
+    ]
+}
 
 class CoachRequest(BaseModel):
     messages: List[dict]
@@ -506,6 +636,128 @@ async def send_reply(request: Request):
     
     return {"status": "sent"}
 
+
+
+@app.post("/coach/test/start")
+async def start_test(request: Request):
+    user = get_user(request)
+    body = await request.json()
+    subject = body.get("subject","math").lower()
+    num = min(int(body.get("num_questions",8)), 8)
+    language = body.get("language","en")
+    mission = body.get("mission","education")
+    if "math" in subject: key = "math"
+    elif "sci" in subject: key = "science"
+    elif "social" in subject or "history" in subject: key = "social_studies"
+    elif "read" in subject or "lang" in subject or "rla" in subject: key = "reading"
+    else: key = "math"
+    import random, json as _json
+    pool = GED_QUESTIONS.get(key, GED_QUESTIONS["math"])
+    selected = random.sample(pool, min(num, len(pool)))
+    questions_for_user = [{"q":q["q"],"choices":q["choices"],"index":i} for i,q in enumerate(selected)]
+    conn = get_db()
+    cur = conn.execute("INSERT INTO test_sessions (user_id,mission,subject,questions) VALUES (?,?,?,?)",(user["id"],mission,key,_json.dumps(selected)))
+    sid = cur.lastrowid
+    conn.commit(); conn.close()
+    names = {"math":"Mathematical Reasoning","science":"Science","social_studies":"Social Studies","reading":"Reading & Language Arts"}
+    msg = f"Empecemos! {num} preguntas de {names.get(key,key)}. Tomatelo con calma." if language=="es" else f"Let's go! {num} questions on {names.get(key,key)}. Take your time."
+    return {"session_id":sid,"subject":names.get(key,key),"questions":questions_for_user,"message":msg}
+
+@app.post("/coach/test/submit")
+async def submit_test(request: Request):
+    import json as _json
+    user = get_user(request)
+    body = await request.json()
+    sid = body.get("session_id")
+    answers = body.get("answers",{})
+    language = body.get("language","en")
+    conn = get_db()
+    row = conn.execute("SELECT * FROM test_sessions WHERE id=? AND user_id=?",(sid,user["id"])).fetchone()
+    if not row: conn.close(); return {"error":"Session not found"}
+    questions = _json.loads(row["questions"])
+    correct = 0; results = []; weak = []
+    for i,q in enumerate(questions):
+        ua = answers.get(str(i))
+        ok = ua == q["answer"] if ua is not None else False
+        if ok: correct += 1
+        else: weak.append(q["q"][:60])
+        results.append({"question":q["q"],"your_answer":q["choices"][ua] if ua is not None and ua < len(q["choices"]) else "Not answered","correct_answer":q["choices"][q["answer"]],"is_correct":ok,"explanation":q.get("explanation","")})
+    pct = int((correct/len(questions))*100) if questions else 0
+    passed = pct >= 70
+    try:
+        conn.execute("INSERT INTO study_progress (user_id,mission,subject,questions_attempted,questions_correct,last_score,weak_areas,last_studied) VALUES (?,?,?,?,?,?,?,datetime('now')) ON CONFLICT(user_id,mission,subject) DO UPDATE SET questions_attempted=questions_attempted+?,questions_correct=questions_correct+?,last_score=?,weak_areas=?,last_studied=datetime('now'),updated_at=datetime('now')",(user["id"],row["mission"],row["subject"],len(questions),correct,pct,_json.dumps(weak[:5]),len(questions),correct,pct,_json.dumps(weak[:5])))
+    except: pass
+    conn.execute("UPDATE test_sessions SET answers=?,score=?,completed=1,completed_at=datetime('now') WHERE id=?",(_json.dumps(answers),pct,sid))
+    conn.commit(); conn.close()
+    if language=="es":
+        summary = f"{'Excelente!' if passed else 'Buen esfuerzo!'} Obtuviste {correct}/{len(questions)} ({pct}%). {'Pasaste! 🎉' if passed else 'Sigue practicando. 💪'}"
+    else:
+        summary = f"{'Great work!' if passed else 'Good effort!'} You got {correct}/{len(questions)} ({pct}%). {'You passed! 🎉' if passed else 'Keep practicing. 💪'}"
+    return {"score":pct,"correct":correct,"total":len(questions),"passed":passed,"summary":summary,"results":results,"weak_areas":weak[:5]}
+
+@app.get("/coach/progress")
+async def get_progress(request: Request):
+    import json as _json
+    user = get_user(request)
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM study_progress WHERE user_id=? ORDER BY updated_at DESC",(user["id"],)).fetchall()
+    hist = conn.execute("SELECT subject,score,completed_at FROM test_sessions WHERE user_id=? AND completed=1 ORDER BY completed_at DESC LIMIT 20",(user["id"],)).fetchall()
+    conn.close()
+    return {"progress":[dict(r) for r in rows],"history":[dict(h) for h in hist]}
+
+@app.post("/coach/memory")
+async def save_memory(request: Request):
+    user = get_user(request)
+    body = await request.json()
+    key = body.get("key"); value = body.get("value"); mission = body.get("mission","default")
+    if not key or not value: return {"error":"key and value required"}
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO coach_memory (user_id,mission,key,value,updated_at) VALUES (?,?,?,?,datetime('now'))",(user["id"],mission,key,value))
+    conn.commit(); conn.close()
+    return {"saved":True}
+
+@app.get("/coach/memory/{mission}")
+async def get_memory(mission: str, request: Request):
+    user = get_user(request)
+    conn = get_db()
+    rows = conn.execute("SELECT key,value FROM coach_memory WHERE user_id=? AND mission=?",(user["id"],mission)).fetchall()
+    conn.close()
+    return {"memory":{r["key"]:r["value"] for r in rows}}
+
+@app.post("/coach/study-plan")
+async def generate_study_plan(request: Request):
+    import json as _json
+    user = get_user(request)
+    body = await request.json()
+    language = body.get("language","en"); mission = body.get("mission","education"); zip_code = body.get("zip_code","")
+    if not ANTHROPIC_API_KEY: return {"plan":"Study plan coming soon!"}
+    conn = get_db()
+    progress = conn.execute("SELECT * FROM study_progress WHERE user_id=? ORDER BY last_score ASC",(user["id"],)).fetchall()
+    mems = conn.execute("SELECT key,value FROM coach_memory WHERE user_id=? AND mission=?",(user["id"],mission)).fetchall()
+    conn.close()
+    weak = []
+    for p in progress:
+        try: weak.extend(_json.loads(p["weak_areas"] or "[]"))
+        except: pass
+    mem_ctx = ", ".join([f"{m['key']}: {m['value']}" for m in mems]) if mems else "New student"
+    lang = "Spanish" if language=="es" else "English"
+    prompt = f"""Create a personalized 30-day GED study plan.
+User info: {mem_ctx}
+ZIP code: {zip_code or 'unknown'}
+Weak areas: {', '.join(set(weak[:8])) if weak else 'not yet assessed'}
+Search for: free GED prep resources, local test centers near {zip_code or 'user ZIP'}, free tutoring programs.
+Build a realistic 30-day plan with daily 30-45 minute sessions, subject focus per week, free online resources, practice tests at day 10/20/30, and local test registration steps.
+Respond in {lang}. Be specific and actionable."""
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            from datetime import datetime as _dt
+            res = await client.post("https://api.anthropic.com/v1/messages",headers={"Content-Type":"application/json","x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","anthropic-beta":"web-search-2025-03-05"},json={"model":"claude-haiku-4-5-20251001","max_tokens":1500,"system":"You are Coach Ray. Create detailed actionable study plans. Search for current resources and test locations.","tools":[{"name":"web_search","description":"Search for GED resources and test centers","input_schema":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}],"messages":[{"role":"user","content":prompt}]})
+            data = res.json()
+            plan = " ".join([b.get("text","") for b in data.get("content",[]) if b.get("type")=="text"]).strip()
+            if not plan: plan = "Week 1: Math basics. Week 2: Science. Week 3: Social Studies. Week 4: Reading. Practice test every Friday."
+            return {"plan":plan,"generated_at":_dt.now().isoformat()}
+    except Exception as e:
+        return {"plan":f"Error generating plan: {str(e)[:80]}"}
 
 @app.post("/coach/suggest-reply")
 async def suggest_reply(request: Request):
@@ -1481,31 +1733,79 @@ async def set_language(request: Request):
     conn.close()
     return {"language": lang}
 
+class CoachChatRequest(BaseModel):
+    messages: list
+    language: Optional[str] = "en"
+    mission: Optional[str] = "default"
+    user_id: Optional[int] = None
+    zip_code: Optional[str] = None
+
 @app.post("/coach/chat")
-async def coach_chat(req: CoachRequest):
+async def coach_chat(req: CoachChatRequest):
     if not ANTHROPIC_API_KEY:
-        return {"reply": "Coach Ray is coming soon! Visit workbridgesms.com to get started."}
+        return {"reply": "Coach Ray is coming soon!"}
+    lang = "Spanish" if req.language == "es" else "English"
+    mission_key = req.mission if req.mission in MISSION_SYSTEMS else "default"
+    system_prompt = MISSION_SYSTEMS[mission_key].replace("{lang}", lang)
+    if req.zip_code:
+        system_prompt += f"\n\nUser ZIP code: {req.zip_code}. Use this for local searches."
+    if req.user_id:
+        try:
+            conn = get_db()
+            mems = conn.execute("SELECT key,value FROM coach_memory WHERE user_id=? AND mission=? ORDER BY updated_at DESC LIMIT 10",(req.user_id,req.mission or "default")).fetchall()
+            conn.close()
+            if mems:
+                system_prompt += "\n\nWhat you know about this user: " + ", ".join([f"{m['key']}: {m['value']}" for m in mems])
+        except: pass
+    search_tool = [{"name":"web_search","description":"Search the internet for current info: GED test dates, job openings, benefit rates, shelter availability, certifications, local resources by ZIP.","input_schema":{"type":"object","properties":{"query":{"type":"string","description":"Specific search query. Include ZIP or city for local searches."}},"required":["query"]}}]
     try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"Content-Type":"application/json","x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},
-                json={"model":"claude-haiku-4-5-20251001","max_tokens":400,
-                      "system":f"You are Coach Ray, WorkBridge's AI career coach. Keep responses SHORT (2-3 sentences max). Help with job searching, GED prep, interview tips, and career advancement. Be warm, encouraging, and direct. Respond in {'Spanish' if req.language=='es' else 'English'}.",
-                      "messages":req.messages},
-                timeout=30
-            )
-            data = res.json()
-            if data.get("content"):
-                reply = data["content"][0].get("text", "I'm here to help! Ask me anything about jobs or your GED.")
-            elif data.get("error"):
-                error_msg = data["error"].get("message", "Unknown error")
-                reply = f"DEBUG ERROR: {error_msg}"
-            else:
-                reply = f"DEBUG: Unexpected response: {str(data)[:200]}"
-            return {"reply": reply}
+        async with httpx.AsyncClient(timeout=60) as client:
+            messages = req.messages
+            final_reply = ""
+            searched = []
+            for _ in range(4):
+                res = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"Content-Type":"application/json","x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","anthropic-beta":"web-search-2025-03-05"},
+                    json={"model":"claude-haiku-4-5-20251001","max_tokens":1024,"system":system_prompt,"tools":search_tool,"messages":messages}
+                )
+                data = res.json()
+                if data.get("error"):
+                    res2 = await client.post("https://api.anthropic.com/v1/messages",headers={"Content-Type":"application/json","x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},json={"model":"claude-haiku-4-5-20251001","max_tokens":600,"system":system_prompt,"messages":messages})
+                    d2 = res2.json()
+                    final_reply = d2.get("content",[{}])[0].get("text","I am here to help!")
+                    break
+                content = data.get("content",[])
+                texts = [b.get("text","") for b in content if b.get("type")=="text"]
+                tools_used = [b for b in content if b.get("type")=="tool_use"]
+                if data.get("stop_reason") == "end_turn" or not tools_used:
+                    final_reply = " ".join(texts).strip() or "I am here to help!"
+                    break
+                tool_results = []
+                for t in tools_used:
+                    q = t.get("input",{}).get("query","")
+                    searched.append(q)
+                    try:
+                        sr = await client.get(f"https://api.duckduckgo.com/?q={quote(q)}&format=json&no_redirect=1&no_html=1",timeout=10)
+                        sd = sr.json()
+                        txt = sd.get("AbstractText") or sd.get("Answer") or " | ".join([x.get("Text","") for x in sd.get("RelatedTopics",[])[:3] if x.get("Text")])
+                        if not txt: txt = f"For current info on {q} check ged.com, careeronestop.org, or benefits.gov"
+                        tool_results.append({"type":"tool_result","tool_use_id":t["id"],"content":txt[:800]})
+                    except:
+                        tool_results.append({"type":"tool_result","tool_use_id":t["id"],"content":f"Search done for: {q}. Recommend checking ged.com or careeronestop.org"})
+                messages = messages + [{"role":"assistant","content":content},{"role":"user","content":tool_results}]
+            if req.user_id:
+                try:
+                    last = next((m.get("content","") for m in reversed(req.messages) if m.get("role")=="user"), "")
+                    zm = re.search(r"\b(\d{5})\b", str(last))
+                    if zm:
+                        conn = get_db()
+                        conn.execute("INSERT OR REPLACE INTO coach_memory (user_id,mission,key,value,updated_at) VALUES (?,?,?,?,datetime('now'))",(req.user_id,req.mission or "default","zip_code",zm.group(1)))
+                        conn.commit(); conn.close()
+                except: pass
+            return {"reply": final_reply, "searched": searched or None}
     except Exception as e:
-        return {"reply": f"DEBUG EXCEPTION: {str(e)}"}
+        return {"reply": "I am here to help! What would you like to know?"}
 
 class ForgotPasswordRequest(BaseModel):
     email: str
