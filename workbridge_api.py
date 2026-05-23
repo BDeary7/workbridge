@@ -256,20 +256,20 @@ async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> d
     search_ctx = ""
     msg_lower = message.lower()
     if any(k in msg_lower for k in ["salary","pay","wage","earn"]):
-        search_ctx = f"\n[LIVE DATA]: {await web_search(f'average salary {user.get(\"target_job\",\"\")} {user.get(\"state\",\"\")} 2025')}\n"
+        job = user.get("target_job",""); state = user.get("state",""); zp = user.get("zip_code","")
+        q = "average salary " + job + " " + state + " 2025"
+        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
     elif any(k in msg_lower for k in ["certif","license","course","train","program"]):
-        search_ctx = f"\n[LIVE DATA]: {await web_search(f'{user.get(\"target_job\",\"\")} certification near {user.get(\"zip_code\",\"\")} {user.get(\"state\",\"\")}')}\n"
-    elif any(k in msg_lower for k in ["interview","question","prep"]):
-        search_ctx = f"\n[LIVE DATA]: {await web_search(f'common interview questions {user.get(\"target_job\",\"\")} 2025')}\n"
+        q = job + " certification near " + zp + " " + state
+        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
+        q = "common interview questions " + job + " 2025"
+        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
     elif any(k in msg_lower for k in ["ged","diploma","hse"]):
-        search_ctx = f"\n[LIVE DATA]: {await web_search(f'free GED resources {user.get(\"state\",\"\")} 2025')}\n"
+        q = "free GED resources " + state + " 2025"
+        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
     elif any(k in msg_lower for k in ["find","job","hiring","work","near"]):
-        search_ctx = f"\n[LIVE DATA]: {await web_search(f'jobs hiring {user.get(\"target_job\",\"\")} near {user.get(\"zip_code\",\"\")} {user.get(\"state\",\"\")}')}\n"
-
-    full_msg = message + search_ctx if search_ctx else message
-    history.append({"role":"user","content":full_msg})
-
-    system = COACH_SYSTEM + "\n\n" + build_user_context(user) + f"\n\nCURRENT MISSION: {mission}"
+        q = "jobs hiring " + job + " near " + zp + " " + state
+        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
 
     reply = ""
     if not ANTHROPIC_KEY:
