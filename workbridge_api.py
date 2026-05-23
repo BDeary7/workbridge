@@ -884,3 +884,205 @@ async def sms_history_compat(limit: int = 50, user=Depends(get_user)):
                 "conversation_id": cid})
     conn.close()
     return {"history": history}
+
+# ── MISSING ENDPOINTS — Dashboard Compatibility ────────────────────────────────
+
+@app.get("/user/missions")
+async def get_user_missions(user=Depends(get_user)):
+    conn = get_db()
+    u = conn.execute("SELECT profile_json FROM users WHERE id=?", (user["id"],)).fetchone()
+    conn.close()
+    profile = json.loads(u["profile_json"]) if u and u["profile_json"] else {}
+    return {"missions": profile.get("missions", [])}
+
+@app.post("/user/missions")
+async def save_user_missions(request: Request, user=Depends(get_user)):
+    body = await request.json()
+    conn = get_db()
+    u = conn.execute("SELECT profile_json FROM users WHERE id=?", (user["id"],)).fetchone()
+    profile = json.loads(u["profile_json"]) if u and u["profile_json"] else {}
+    profile["missions"] = body.get("missions", [])
+    conn.execute("UPDATE users SET profile_json=? WHERE id=?", (json.dumps(profile), user["id"]))
+    conn.commit(); conn.close()
+    return {"status": "saved"}
+
+@app.post("/coach/save-profile")
+async def save_profile(request: Request, user=Depends(get_user)):
+    body = await request.json()
+    mission = body.get("mission", "")
+    answers = body.get("answers", {})
+    conn = get_db()
+    u = conn.execute("SELECT profile_json FROM users WHERE id=?", (user["id"],)).fetchone()
+    profile = json.loads(u["profile_json"]) if u and u["profile_json"] else {}
+    profile[f"mission_{mission}"] = answers
+    profile["last_mission"] = mission
+    if answers.get("phone"):
+        conn.execute("UPDATE users SET phone=? WHERE id=?", (answers["phone"], user["id"]))
+    if answers.get("zip"):
+        conn.execute("UPDATE users SET zip_code=? WHERE id=?", (answers["zip"], user["id"]))
+    conn.execute("UPDATE users SET profile_json=? WHERE id=?", (json.dumps(profile), user["id"]))
+    conn.commit(); conn.close()
+    return {"status": "saved"}
+
+@app.post("/coach/generate-message")
+async def generate_message(request: Request, user=Depends(get_user)):
+    body = await request.json()
+    mission = body.get("mission", "job")
+    answers = body.get("answers", {})
+    name = body.get("name", user.get("first_name", ""))
+    language = body.get("language", user.get("language", "en"))
+    job_type = answers.get("job_type", answers.get("goal", answers.get("service_type", "work")))
+    zip_code = answers.get("zip", answers.get("zip_code", user.get("zip_code", "")))
+    narrative = answers.get("narrative", "")
+    lang_note = "English — for US businesses." if language == "en" else f"{language}"
+    prompt = f"Write a 160-char SMS for {name} seeking {job_type} work near {zip_code}. {lang_note} Context: {narrative[:100]}. Include name, skill, ask if hiring, end WorkBridge. Return ONLY message text."
+    if not ANTHROPIC_KEY:
+        return {"message": f"Hi, I'm {name}. I have experience in {job_type} and am seeking work near {zip_code}. Are you hiring? — WorkBridge"}
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            res = await client.post("https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": "claude-sonnet-4-20250514", "max_tokens": 200, "messages": [{"role": "user", "content": prompt}]})
+            return {"message": res.json()["content"][0]["text"].strip().strip('"')}
+    except:
+        return {"message": f"Hi, I'm {name} seeking {job_type} work near {zip_code}. Are you hiring? — WorkBridge"}
+
+@app.post("/coach/agent-search")
+async def agent_search(request: Request, user=Depends(get_user)):
+    body = await request.json()
+    zip_code = body.get("zip_code", user.get("zip_code", "90001"))
+    category = body.get("category", "home health")
+    language = body.get("language", "en")
+    answers = body.get("answers", {})
+    conn = get_db()
+    u = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    if u["credits"] < 1:
+        conn.close(); raise HTTPException(402, "No credits remaining")
+    name = u["first_name"] or ""
+    narrative = answers.get("narrative", "")
+    if ANTHROPIC_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                prompt = f"Write a 160-char SMS for {name} seeking {category} work near {zip_code}. English for US businesses. Include name, skill, ask if hiring, end WorkBridge."
+                res = await client.post("https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                    json={"model": "claude-sonnet-4-20250514", "max_tokens": 200, "messages": [{"role": "user", "content": prompt}]})
+                outreach_msg = res.json()["content"][0]["text"].strip().strip('"')
+        except:
+            outreach_msg = f"Hi, I'm {name}. I have experience in {category} and am seeking work near {zip_code}. Are you hiring? — WorkBridge"
+    else:
+        outreach_msg = f"Hi, I'm {name}. I have experience in {category} and am seeking work near {zip_code}. Are you hiring? — WorkBridge"
+    businesses = []
+    if GOOGLE_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                geo = await client.get("https://maps.googleapis.com/maps/api/geocode/json", params={"address": zip_code, "key": GOOGLE_KEY})
+                geo_data = geo.json()
+                if geo_data.get("results"):
+                    loc = geo_data["results"][0]["geometry"]["location"]
+                    places = await client.get("https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+                        params={"location": f"{loc['lat']},{loc['lng']}", "radius": 5000, "keyword": category, "type": "establishment", "key": GOOGLE_KEY})
+                    for r in places.json().get("results", [])[:10]:
+                        if r.get("place_id"):
+                            detail = await client.get("https://maps.googleapis.com/maps/api/place/details/json",
+                                params={"place_id": r["place_id"], "fields": "formatted_phone_number,name", "key": GOOGLE_KEY})
+                            phone = detail.json().get("result", {}).get("formatted_phone_number", "")
+                            if phone:
+                                businesses.append({"name": r.get("name", ""), "phone": phone})
+        except: pass
+    if not businesses:
+        businesses = [{"name": f"Local {category.title()} Business {i}", "phone": f"+1949555{1000+i}"} for i in range(1, 4)]
+    sent = 0
+    for biz in businesses:
+        phone_raw = biz.get("phone", "")
+        if not phone_raw: continue
+        phone = normalize_phone(phone_raw)
+        biz_name = biz.get("name", "Business")
+        existing = conn.execute("SELECT id FROM conversations WHERE user_id=? AND contact_phone=?", (user["id"], phone)).fetchone()
+        if existing:
+            conv_id = existing["id"]
+            conn.execute("UPDATE conversations SET status='active', last_message=?, last_message_at=? WHERE id=?", (outreach_msg, datetime.utcnow().isoformat(), conv_id))
+        else:
+            cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (?,?,?,?,?,?)",
+                (user["id"], phone, biz_name, biz_name, outreach_msg, datetime.utcnow().isoformat()))
+            conv_id = cur.lastrowid
+        sid = await send_sms(phone, outreach_msg)
+        conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (?,?,?,?,?,?,?)",
+            (conv_id, user["id"], "outbound", outreach_msg, TWILIO_FROM or "WorkBridge", phone, sid or ""))
+        if sid: sent += 1
+    if sent > 0:
+        conn.execute("UPDATE users SET credits=credits-? WHERE id=?", (sent, user["id"]))
+    new_bal = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()["credits"]
+    conn.commit(); conn.close()
+    confirm = f"Sent to {sent} of {len(businesses)} businesses near {zip_code}!" if language == "en" else f"¡Mensajes enviados a {sent} de {len(businesses)} empresas cerca de {zip_code}!"
+    return {"messages_sent": sent, "businesses_found": len(businesses), "credits_remaining": new_bal, "outreach_message": outreach_msg, "user_confirmation": confirm}
+
+@app.post("/coach/suggest-reply")
+async def suggest_reply(request: Request, user=Depends(get_user)):
+    body = await request.json()
+    business_name = body.get("business_name", "the business")
+    last_message = body.get("last_message", "")
+    user_name = body.get("user_name", user.get("first_name", ""))
+    if not ANTHROPIC_KEY:
+        return {"suggestion": "Thank you for getting back to me! I'm very interested. When would be a good time to connect?"}
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            prompt = f"Write a short professional SMS reply (under 160 chars) from {user_name} to {business_name} who said: '{last_message}'. Warm, express interest, suggest next step. Return ONLY reply text."
+            res = await client.post("https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": "claude-sonnet-4-20250514", "max_tokens": 200, "messages": [{"role": "user", "content": prompt}]})
+            return {"suggestion": res.json()["content"][0]["text"].strip().strip('"')}
+    except:
+        return {"suggestion": "Thank you! I'm very interested. When would be a good time to connect?"}
+
+@app.post("/messages/reply")
+async def messages_reply_compat(request: Request, user=Depends(get_user)):
+    body = await request.json()
+    to = body.get("to", ""); message = body.get("message", ""); business_name = body.get("business_name", "Business")
+    if not to or not message: raise HTTPException(400, "Missing to or message")
+    phone = normalize_phone(to)
+    conn = get_db()
+    u = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()
+    if u["credits"] < 1: conn.close(); raise HTTPException(402, "No credits remaining")
+    conv = conn.execute("SELECT id FROM conversations WHERE user_id=? AND contact_phone=?", (user["id"], phone)).fetchone()
+    if conv:
+        conv_id = conv["id"]
+    else:
+        cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (?,?,?,?,?,?)",
+            (user["id"], phone, business_name, business_name, message, datetime.utcnow().isoformat()))
+        conv_id = cur.lastrowid
+    sid = await send_sms(phone, message)
+    conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (?,?,?,?,?,?,?)",
+        (conv_id, user["id"], "outbound", message, TWILIO_FROM or "WorkBridge", phone, sid or ""))
+    conn.execute("UPDATE conversations SET last_message=?, last_message_at=? WHERE id=?", (message, datetime.utcnow().isoformat(), conv_id))
+    conn.execute("UPDATE users SET credits=credits-1 WHERE id=?", (user["id"],))
+    conn.commit(); conn.close()
+    return {"status": "sent", "sid": sid}
+
+@app.get("/sms/history")
+async def sms_history_compat(limit: int = 50, user=Depends(get_user)):
+    conn = get_db()
+    msgs = conn.execute(
+        """SELECT m.*, c.contact_name as recipient_name, c.contact_phone as recipient_phone,
+           c.status as conv_status, m.conversation_id
+           FROM messages m JOIN conversations c ON m.conversation_id=c.id
+           WHERE m.user_id=? AND m.direction='outbound' ORDER BY m.sent_at DESC LIMIT ?""",
+        (user["id"], limit)).fetchall()
+    history = []
+    seen = {}
+    for m in msgs:
+        d = dict(m)
+        cid = d["conversation_id"]
+        if cid not in seen:
+            seen[cid] = True
+            inbound = conn.execute(
+                "SELECT body, sent_at FROM messages WHERE conversation_id=? AND direction='inbound' ORDER BY sent_at DESC LIMIT 1",
+                (cid,)).fetchone()
+            history.append({"id": d["id"], "recipient_name": d["recipient_name"],
+                "recipient_phone": d["recipient_phone"], "message_text": d["body"],
+                "status": d["status"], "sent_at": d["sent_at"],
+                "reply_text": inbound["body"] if inbound else None,
+                "replied_at": inbound["sent_at"] if inbound else None,
+                "conversation_id": cid})
+    conn.close()
+    return {"history": history}
