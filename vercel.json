@@ -1,13 +1,6 @@
 {
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "X-Robots-Tag",
-          "value": "index, follow"
-        }
-      ]
-    }
+  "rewrites": [
+    {"source": "/privacy", "destination": "/public/privacy.html"},
+    {"source": "/terms", "destination": "/public/terms.html"}
   ]
 }
