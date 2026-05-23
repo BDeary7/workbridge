@@ -392,7 +392,7 @@ export default function Dashboard(){
       setTimeout(()=>{
         // Generate outreach message and show preview
     const currentAnswers = {...na}
-    const currentMission = id
+    const currentMission = mission
     setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your ${label} profile is complete and saved.\n\n${hoursMsg}\n\nI am writing your outreach message now...`}])
     
     // Fetch AI-generated message
@@ -429,7 +429,7 @@ export default function Dashboard(){
       calendar: '📅 Opening calendar scheduling... A specialist will confirm your appointment via SMS.',
     }
     const snapAnswers = {...ans}
-    const snapMission = activeMission
+    const snapMission = mission
     setMsgs(m=>[...m,{r:'u',c:`Contact me via ${method}`},{r:'a',c:messages[method]||'A specialist will reach out shortly!'}])
     setTimeout(async()=>{
       const narrative = (snapAnswers.narrative||'').toLowerCase()
@@ -543,7 +543,7 @@ export default function Dashboard(){
     if(waitingForNarrative){
       setWaitingForNarrative(false)
       const narrative = text.trim()
-      setText('')
+      setInp('')
       setLoading(true)
       const allAnswers = {...currentAnswers, narrative}
       setMsgs(m=>[...m,{r:'u',c:narrative}])
@@ -611,7 +611,7 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
   const TABS=[
     {id:'missions',lb:'🎯 My Missions'},
     {id:'coach',lb:'🤖 Coach Ray'},
-    {id:'history',lb:'📬 SMS History'},
+    {id:'messages',lb:'📬 SMS History'},
     {id:'appointments',lb:'📅 Appointments'},
     {id:'credits',lb:'💳 Credits'},
   ]
