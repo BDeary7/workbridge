@@ -489,6 +489,10 @@ async def send_reply(req: ReplyRequest, user=Depends(get_user)):
     conn.commit(); conn.close()
     return {"status":"sent","credits_remaining":new_bal}
 
+@app.get("/sms/reply/webhook")
+async def inbound_webhook_get():
+    return PlainTextResponse('<?xml version="1.0" encoding="UTF-8"?><Response />', media_type="application/xml")
+
 @app.post("/sms/reply/webhook")
 async def inbound_webhook(request: Request):
     form = await request.form()
