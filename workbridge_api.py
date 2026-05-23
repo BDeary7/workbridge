@@ -1,22 +1,44 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+# workbridge_api.py — WorkBridge v3.0
+# Coach Ray + Live Search + Document Generation + Two-Way SMS
+# Deploy: uvicorn workbridge_api:app --host 0.0.0.0 --port $PORT
+
+import os, sqlite3, hashlib, json, asyncio, httpx, re
+from datetime import datetime, timedelta
 from typing import Optional, List
-from datetime import datetime
-import sqlite3, hashlib, secrets, json, os, asyncio, httpx, re
-from urllib.parse import quote_plus
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
+from twilio.rest import Client as TwilioClient
+from twilio.twiml.messaging_response import MessagingResponse
+import stripe
 
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN", "")
-TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "")
-GOOGLE_PLACES_KEY  = os.getenv("GOOGLE_PLACES_KEY", "")
-STRIPE_SECRET_KEY  = os.getenv("STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
-DB_PATH = "/data/workbridge.db"
+TWILIO_SID     = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_TOKEN   = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM    = os.getenv("TWILIO_FROM_NUMBER", "")
+GOOGLE_KEY     = os.getenv("GOOGLE_PLACES_KEY", "")
+STRIPE_SECRET  = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+ANTHROPIC_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
+SECRET_KEY     = os.getenv("SECRET_KEY", "workbridge-secret-2026")
 
-app = FastAPI(title="WorkBridge API", version="1.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+stripe.api_key = STRIPE_SECRET
+twilio_client  = TwilioClient(TWILIO_SID, TWILIO_TOKEN) if TWILIO_SID else None
+DB_PATH        = "/tmp/workbridge.db"
+
+class ConnectionManager:
+    def __init__(self): self.active: dict[str, WebSocket] = {}
+    async def connect(self, token, ws):
+        await ws.accept(); self.active[token] = ws
+    def disconnect(self, token): self.active.pop(token, None)
+    async def send(self, token, data):
+        ws = self.active.get(token)
+        if ws:
+            try: await ws.send_json(data)
+            except: self.disconnect(token)
+
+manager = ConnectionManager()
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -28,60 +50,122 @@ def init_db():
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT, email TEXT UNIQUE, phone TEXT,
-        password_hash TEXT, credits INTEGER DEFAULT 5,
-        language TEXT DEFAULT 'en', created_at TEXT DEFAULT (datetime('now')),
-        api_token TEXT
+        first_name TEXT NOT NULL DEFAULT '',
+        last_name TEXT NOT NULL DEFAULT '',
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        phone TEXT,
+        zip_code TEXT,
+        state TEXT,
+        language TEXT DEFAULT 'en',
+        credits INTEGER DEFAULT 5,
+        token TEXT UNIQUE,
+        skills TEXT DEFAULT '',
+        target_job TEXT DEFAULT '',
+        availability TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now'))
     );
-    CREATE TABLE IF NOT EXISTS sms_blast (
+    CREATE TABLE IF NOT EXISTS conversations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, recipient_name TEXT, recipient_phone TEXT,
-        recipient_address TEXT, category TEXT, position TEXT,
-        zip_code TEXT, message_text TEXT, status TEXT DEFAULT 'pending',
-        twilio_sid TEXT, sent_at TEXT, reply_text TEXT, replied_at TEXT
+        user_id INTEGER NOT NULL,
+        contact_phone TEXT NOT NULL,
+        contact_name TEXT NOT NULL,
+        contact_company TEXT,
+        status TEXT DEFAULT 'active',
+        last_message TEXT,
+        last_message_at TEXT,
+        unread_count INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(user_id, contact_phone)
+    );
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        direction TEXT NOT NULL,
+        body TEXT NOT NULL,
+        from_number TEXT,
+        to_number TEXT,
+        twilio_sid TEXT,
+        status TEXT DEFAULT 'sent',
+        sent_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS coach_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL UNIQUE,
+        session_json TEXT DEFAULT '[]',
+        mission TEXT DEFAULT 'intake',
+        updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS generated_docs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        doc_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS appointments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, business_name TEXT, business_phone TEXT,
-        appt_datetime TEXT, notes TEXT, status TEXT DEFAULT 'scheduled',
+        user_id INTEGER NOT NULL,
+        business_name TEXT,
+        business_phone TEXT,
+        appt_datetime TEXT,
+        notes TEXT,
+        status TEXT DEFAULT 'scheduled',
         created_at TEXT DEFAULT (datetime('now'))
     );
-    CREATE TABLE IF NOT EXISTS credit_transactions (
+    CREATE TABLE IF NOT EXISTS credits_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, credits INTEGER, amount_cents INTEGER,
-        stripe_session TEXT, status TEXT DEFAULT 'pending',
+        user_id INTEGER NOT NULL,
+        amount INTEGER,
+        reason TEXT,
+        stripe_session TEXT,
         created_at TEXT DEFAULT (datetime('now'))
     );
     """)
-    conn.execute("""CREATE TABLE IF NOT EXISTS conversations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, business_name TEXT, business_phone TEXT,
-        last_message TEXT, last_direction TEXT DEFAULT 'outbound',
-        status TEXT DEFAULT 'active', mission TEXT, unread INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now'))
-    )""")
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
 
-init_db()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db(); yield
+
+app = FastAPI(title="WorkBridge API v3.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+def hash_pw(p): return hashlib.sha256(f"{SECRET_KEY}{p}".encode()).hexdigest()
+def make_token(email): return hashlib.sha256(
+    f"{SECRET_KEY}{email}{datetime.utcnow().isoformat()}".encode()).hexdigest()
+
+def get_user(request: Request):
+    token = request.headers.get("Authorization","").replace("Bearer ","")
+    if not token: raise HTTPException(401,"No token")
+    conn = get_db()
+    u = conn.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+    conn.close()
+    if not u: raise HTTPException(401,"Invalid token")
+    return dict(u)
 
 class RegisterRequest(BaseModel):
-    name: str
+    first_name: str
+    last_name: str
     email: str
-    phone: str
     password: str
-    language: Optional[str] = "en"
+    phone: Optional[str] = None
+    zip_code: Optional[str] = None
+    state: Optional[str] = None
+    language: str = "en"
 
 class LoginRequest(BaseModel):
     email: str
     password: str
 
-class SearchRequest(BaseModel):
+class BusinessSearchRequest(BaseModel):
     zip_code: str
     category: str
-    position: str
-    radius_miles: Optional[int] = 10
+    radius: int = 5000
+    max_results: int = 20
 
 class BlastRequest(BaseModel):
     businesses: List[dict]
@@ -89,6 +173,24 @@ class BlastRequest(BaseModel):
     category: str
     position: str
     zip_code: str
+    message_language: str = "en"
+
+class ReplyRequest(BaseModel):
+    conversation_id: int
+    body: str
+
+class CoachRequest(BaseModel):
+    message: str
+    mission: Optional[str] = "intake"
+
+class ProfileUpdateRequest(BaseModel):
+    phone: Optional[str] = None
+    language: Optional[str] = None
+    skills: Optional[str] = None
+    target_job: Optional[str] = None
+    availability: Optional[str] = None
+    zip_code: Optional[str] = None
+    state: Optional[str] = None
 
 class AppointmentRequest(BaseModel):
     business_name: str
@@ -96,1484 +198,483 @@ class AppointmentRequest(BaseModel):
     appt_datetime: str
     notes: Optional[str] = ""
 
-class CreditPurchaseRequest(BaseModel):
-    credits: int
+async def web_search(query: str) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get("https://api.duckduckgo.com/",
+                params={"q":query,"format":"json","no_html":"1","skip_disambig":"1"})
+            data = r.json()
+            results = []
+            if data.get("AbstractText"): results.append(data["AbstractText"][:300])
+            for item in data.get("RelatedTopics",[])[:4]:
+                if isinstance(item,dict) and item.get("Text"):
+                    results.append(item["Text"][:200])
+            return "\n".join(results) if results else "No results found."
+    except Exception as e: return f"Search unavailable: {str(e)}"
 
-class CoachRequest(BaseModel):
-    messages: List[dict]
-    language: Optional[str] = "en"
+def build_user_context(user: dict) -> str:
+    return f"""
+=== USER PROFILE (PRE-LOADED — NEVER ASK FOR THIS) ===
+Full Name: {user.get('first_name','')} {user.get('last_name','')}
+Phone: {user.get('phone','')}
+Location: {user.get('zip_code','')}, {user.get('state','')}
+Language: {user.get('language','en')}
+Skills: {user.get('skills','')}
+Target Job: {user.get('target_job','')}
+Availability: {user.get('availability','')}
+=== END PROFILE ==="""
 
-CREDIT_PACKAGES = {50:500, 100:1000, 200:2000, 400:4000, 600:6000}
+COACH_SYSTEM = """You are Coach Ray — WorkBridge's AI career coach.
+You are warm, direct, and genuinely invested in every person you help.
+You have seen people go from homeless to employed in 48 hours.
 
-def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
+CRITICAL RULES:
+- NEVER ask for name, phone, ZIP code, or state — you already have them in the user profile above
+- Always respond in the user's language from their profile
+- When drafting SMS to businesses, write in ENGLISH (US businesses) unless told otherwise
+- Keep responses under 200 words unless generating a document
+- Ask ONE question at a time
+- End every response with a clear next step
 
-def get_user(request: Request):
-    token = request.headers.get("Authorization","").replace("Bearer ","")
-    if not token: raise HTTPException(401, "Token required")
+10 MISSIONS: intake > job_search > message_craft > blast_ready > follow_up > interview_prep > credential > negotiation > retention > advance
+
+DOCUMENTS YOU CAN GENERATE:
+- Interview Prep Sheet, Salary Negotiation Script, Credential Roadmap, 90-Day Advance Plan, Follow-Up Templates
+
+SMS DRAFTING: Label outgoing SMS as [SMS TO SEND - ENGLISH] so user knows exactly what gets sent."""
+
+async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> dict:
     conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE api_token=?", (token,)).fetchone()
-    conn.close()
-    if not user: raise HTTPException(401, "Invalid token")
-    return dict(user)
-
-@app.get("/")
-async def root():
-    return {"message":"WorkBridge API","docs":"/docs","health":"/health"}
-
-
-@app.post("/coach/agent-search")
-async def agent_search(request: Request):
-    """
-    Full Coach Ray Agent:
-    1. Search real businesses via Google Places
-    2. Write bilingual outreach message
-    3. Send SMS to businesses via Twilio
-    4. Track replies
-    5. Schedule interviews
-    """
-    user = get_user(request)
-    data = await request.json()
-    
-    mission = data.get("mission", "job")
-    answers = data.get("answers", {})
-    zip_code = data.get("zip_code", "90001")
-    user_lang = data.get("language", "en")
-    user_name = data.get("name", "")
-    category = data.get("category", "")
-    position = data.get("position", "")
-    
-    conn = get_db()
-    user_row = conn.execute(
-        "SELECT name, phone, email FROM users WHERE id=?", 
-        (user["id"],)
-    ).fetchone()
-    conn.close()
-    
-    name = user_row["name"] if user_row else user_name
-    
-    # Step 1: Find real businesses via Google Places
-    businesses = []
-    if GOOGLE_PLACES_KEY:
-        async with httpx.AsyncClient(timeout=15) as client:
-            try:
-                geo = await client.get(
-                    "https://maps.googleapis.com/maps/api/geocode/json",
-                    params={"address": zip_code, "key": GOOGLE_PLACES_KEY}
-                )
-                geo_data = geo.json()
-                if geo_data.get("results"):
-                    loc = geo_data["results"][0]["geometry"]["location"]
-                    lat, lng = loc["lat"], loc["lng"]
-                    resp = await client.get(
-                        "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
-                        params={
-                            "location": f"{lat},{lng}",
-                            "radius": 16090,
-                            "keyword": f"{category} {position}",
-                            "key": GOOGLE_PLACES_KEY
-                        }
-                    )
-                    for place in resp.json().get("results", [])[:10]:
-                        detail = await client.get(
-                            "https://maps.googleapis.com/maps/api/place/details/json",
-                            params={
-                                "place_id": place["place_id"],
-                                "fields": "name,formatted_phone_number,formatted_address",
-                                "key": GOOGLE_PLACES_KEY
-                            }
-                        )
-                        d = detail.json().get("result", {})
-                        if d.get("formatted_phone_number"):
-                            businesses.append({
-                                "name": place.get("name"),
-                                "phone": d["formatted_phone_number"],
-                                "address": d.get("formatted_address", "")
-                            })
-                        await asyncio.sleep(0.05)
-            except Exception as e:
-                print(f"Places error: {e}")
-    
-    # Step 2: Generate outreach message in ENGLISH (for employers)
-    english_message = f"Hi, my name is {name}. I have experience in {position or category} and am available to start immediately. Do you have any openings? I am reliable, motivated, and ready to contribute. Please reply or call me back."
-    
-    if ANTHROPIC_API_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": ANTHROPIC_API_KEY,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json"
-                    },
-                    json={
-                        "model": "claude-opus-4-5",
-                        "max_tokens": 200,
-                        "messages": [{
-                            "role": "user",
-                            "content": f"""Write a professional SMS outreach message IN ENGLISH for a job seeker.
-Name: {name}
-Position seeking: {position or category}
-Experience summary: {answers.get("narrative", "experienced professional")}
-ZIP: {zip_code}
-
-Rules:
-- Write ONLY in English (this goes to employers)
-- Under 160 characters
-- Professional and warm
-- Include name, position, availability
-- End with a question about openings
-- NO hashtags, NO emojis
-
-Return ONLY the SMS text."""
-                        }]
-                    }
-                )
-                msg_data = resp.json()
-                if msg_data.get("content"):
-                    english_message = msg_data["content"][0]["text"].strip()
-        except Exception as e:
-            print(f"Message gen error: {e}")
-    
-    # Step 3: Generate Spanish confirmation for Hugo
-    spanish_confirmation = f"¡Perfecto {name}! Encontré {len(businesses)} empresas cerca de ti en {zip_code}. Estoy enviando tu mensaje ahora mismo. Te avisaré cuando alguien responda."
-    if user_lang == "es" and ANTHROPIC_API_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": ANTHROPIC_API_KEY,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json"
-                    },
-                    json={
-                        "model": "claude-opus-4-5",
-                        "max_tokens": 150,
-                        "messages": [{
-                            "role": "user",
-                            "content": f"Write a warm encouraging message IN SPANISH to {name} telling them you found {len(businesses)} businesses near {zip_code} and are sending their job inquiry now. Tell them you will notify them when someone responds. Keep it under 2 sentences."
-                        }]
-                    }
-                )
-                conf_data = resp.json()
-                if conf_data.get("content"):
-                    spanish_confirmation = conf_data["content"][0]["text"].strip()
-        except Exception as e:
-            print(f"Spanish conf error: {e}")
-    
-    # Step 4: Send SMS to businesses via Twilio
-    sent_count = 0
-    if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM_NUMBER and businesses:
-        from twilio.rest import Client as TwilioClient
-        twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        
-        conn = get_db()
-        for biz in businesses[:10]:
-            try:
-                phone = biz["phone"].replace(" ","").replace("-","").replace("(","").replace(")","").replace("+","")
-                if not phone.startswith("1"):
-                    phone = "1" + phone
-                
-                twilio_client.messages.create(
-                    body=english_message,
-                    from_=TWILIO_FROM_NUMBER,
-                    to=f"+{phone}"
-                )
-                
-                # Save to outreach log
-                conn.execute("""
-                    INSERT OR IGNORE INTO outreach_log 
-                    (user_id, business_name, business_phone, message, status, mission)
-                    VALUES (?,?,?,?,?,?)
-                """, (user["id"], biz["name"], biz["phone"], english_message, "sent", mission))
-                sent_count += 1
-                await asyncio.sleep(0.2)
-            except Exception as e:
-                print(f"SMS error to {biz.get('name')}: {e}")
+    session = conn.execute("SELECT * FROM coach_sessions WHERE user_id=?",(user["id"],)).fetchone()
+    history = json.loads(session["session_json"]) if session else []
+    if not session:
+        conn.execute("INSERT INTO coach_sessions (user_id,session_json,mission) VALUES (?,?,?)",
+            (user["id"],"[]",mission))
         conn.commit()
-        conn.close()
-    
-    return {
-        "status": "success",
-        "businesses_found": len(businesses),
-        "messages_sent": sent_count,
-        "outreach_message": english_message,
-        "user_confirmation": spanish_confirmation,
-        "businesses": businesses[:5]
-    }
 
+    history = history[-24:]
+    search_ctx = ""
+    msg_lower = message.lower()
+    if any(k in msg_lower for k in ["salary","pay","wage","earn"]):
+        search_ctx = f"\n[LIVE DATA]: {await web_search(f'average salary {user.get(\"target_job\",\"\")} {user.get(\"state\",\"\")} 2025')}\n"
+    elif any(k in msg_lower for k in ["certif","license","course","train","program"]):
+        search_ctx = f"\n[LIVE DATA]: {await web_search(f'{user.get(\"target_job\",\"\")} certification near {user.get(\"zip_code\",\"\")} {user.get(\"state\",\"\")}')}\n"
+    elif any(k in msg_lower for k in ["interview","question","prep"]):
+        search_ctx = f"\n[LIVE DATA]: {await web_search(f'common interview questions {user.get(\"target_job\",\"\")} 2025')}\n"
+    elif any(k in msg_lower for k in ["ged","diploma","hse"]):
+        search_ctx = f"\n[LIVE DATA]: {await web_search(f'free GED resources {user.get(\"state\",\"\")} 2025')}\n"
+    elif any(k in msg_lower for k in ["find","job","hiring","work","near"]):
+        search_ctx = f"\n[LIVE DATA]: {await web_search(f'jobs hiring {user.get(\"target_job\",\"\")} near {user.get(\"zip_code\",\"\")} {user.get(\"state\",\"\")}')}\n"
 
-@app.post("/coach/schedule-interview")
-async def schedule_interview(request: Request):
-    """Schedule interview and send bilingual reminders"""
-    user = get_user(request)
-    data = await request.json()
-    
-    employer_name = data.get("employer_name", "")
-    employer_phone = data.get("employer_phone", "")
-    interview_date = data.get("interview_date", "")
-    interview_time = data.get("interview_time", "")
-    interview_address = data.get("interview_address", "")
-    user_lang = data.get("language", "en")
-    
-    conn = get_db()
-    user_row = conn.execute(
-        "SELECT name, phone FROM users WHERE id=?",
-        (user["id"],)
-    ).fetchone()
-    
-    user_name = user_row["name"] if user_row else ""
-    user_phone = user_row["phone"] if user_row else ""
-    
-    # Save interview to DB
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS interviews (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            employer_name TEXT,
-            employer_phone TEXT,
-            interview_date TEXT,
-            interview_time TEXT,
-            interview_address TEXT,
-            status TEXT DEFAULT 'scheduled',
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    conn.execute("""
-        INSERT INTO interviews 
-        (user_id, employer_name, employer_phone, interview_date, interview_time, interview_address)
-        VALUES (?,?,?,?,?,?)
-    """, (user["id"], employer_name, employer_phone, interview_date, interview_time, interview_address))
-    conn.commit()
-    conn.close()
-    
-    # Send confirmation to user in their language
-    if user_lang == "es":
-        user_msg = f"¡Entrevista confirmada! {employer_name} te espera el {interview_date} a las {interview_time}. Dirección: {interview_address}. ¡Buena suerte, {user_name}! 🌟"
+    full_msg = message + search_ctx if search_ctx else message
+    history.append({"role":"user","content":full_msg})
+
+    system = COACH_SYSTEM + "\n\n" + build_user_context(user) + f"\n\nCURRENT MISSION: {mission}"
+
+    reply = ""
+    if not ANTHROPIC_KEY:
+        name = user.get("first_name","there")
+        reply = f"Hey {name}! Coach Ray here. What kind of work are you looking for?" if user.get("language","en")=="en" else f"¡Hola {name}! Soy Coach Ray. ¿Qué tipo de trabajo buscas?"
     else:
-        user_msg = f"Interview confirmed! {employer_name} is expecting you on {interview_date} at {interview_time}. Address: {interview_address}. Good luck {user_name}!"
-    
-    # Send confirmation to employer in English
-    employer_msg = f"This confirms {user_name}'s interview on {interview_date} at {interview_time}. We look forward to meeting with you. Please reply to confirm."
-    
-    # Send SMS confirmations
-    if TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM:
-        from twilio.rest import Client as TwilioClient
-        twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        
         try:
-            if user_phone:
-                phone = user_phone.replace(" ","").replace("-","").replace("(","").replace(")","")
-                if not phone.startswith("+"):
-                    phone = "+1" + phone.replace("+","")
-                twilio_client.messages.create(body=user_msg, from_=TWILIO_FROM_NUMBER, to=phone)
+            async with httpx.AsyncClient(timeout=45) as client:
+                res = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
+                    json={"model":"claude-sonnet-4-20250514","max_tokens":1000,"system":system,"messages":history}
+                )
+                reply = res.json()["content"][0]["text"]
         except Exception as e:
-            print(f"User SMS error: {e}")
-        
-        try:
-            if employer_phone:
-                emp_phone = employer_phone.replace(" ","").replace("-","").replace("(","").replace(")","")
-                if not emp_phone.startswith("+"):
-                    emp_phone = "+1" + emp_phone.replace("+","")
-                twilio_client.messages.create(body=employer_msg, from_=TWILIO_FROM_NUMBER, to=emp_phone)
-        except Exception as e:
-            print(f"Employer SMS error: {e}")
-    
-    return {
-        "status": "scheduled",
-        "user_message": user_msg,
-        "employer_message": employer_msg,
-        "interview_date": interview_date,
-        "interview_time": interview_time
+            reply = f"Coach Ray is momentarily unavailable. ({str(e)[:60]})"
+
+    history.append({"role":"assistant","content":reply})
+    conn.execute("UPDATE coach_sessions SET session_json=?,mission=?,updated_at=? WHERE user_id=?",
+        (json.dumps(history),mission,datetime.utcnow().isoformat(),user["id"]))
+
+    doc = None
+    doc_keywords = ["interview prep sheet","negotiation script","credential roadmap","90-day","follow-up template"]
+    if any(k in reply.lower() for k in doc_keywords):
+        doc_type = "interview_prep" if "interview prep" in reply.lower() else \
+                   "negotiation_script" if "negotiation" in reply.lower() else \
+                   "credential_roadmap" if "credential" in reply.lower() else \
+                   "advance_plan" if "90-day" in reply.lower() else "followup_templates"
+        doc_content = await generate_document(doc_type, user)
+        if doc_content:
+            cur = conn.execute("INSERT INTO generated_docs (user_id,doc_type,title,content) VALUES (?,?,?,?)",
+                (user["id"],doc_type,doc_content["title"],doc_content["content"]))
+            doc = {"id":cur.lastrowid,"type":doc_type,"title":doc_content["title"]}
+
+    conn.commit(); conn.close()
+    return {"reply":reply,"mission":mission,"doc":doc}
+
+async def generate_document(doc_type: str, user: dict) -> Optional[dict]:
+    if not ANTHROPIC_KEY: return None
+    first = user.get("first_name","")
+    job   = user.get("target_job","your target job")
+    state = user.get("state","")
+    prompts = {
+        "interview_prep": f"Generate a complete Interview Prep Sheet for {first} applying for {job} in {state}. Include: what to wear, what to bring, 10 likely questions with coached answers, 3 smart questions to ask employer, day-of checklist.",
+        "negotiation_script": f"Generate a Salary Negotiation Script for {first} for {job} in {state}. Include word-for-word scripts, how to counter, what to say if they can't go higher, benefits negotiation.",
+        "credential_roadmap": f"Generate a Credential Roadmap for {first} pursuing {job} in {state}. Include fastest path, step-by-step timeline, estimated costs, free resources.",
+        "advance_plan": f"Generate a 90-Day Career Advance Plan for {first} in {job}. Days 1-30 foundation, 31-60 growth, 61-90 advance. Specific daily actions.",
+        "followup_templates": f"Generate 3 Follow-Up SMS Templates for {first} following up about {job}. Each under 160 chars. Soft, value-add, and final follow-up.",
     }
-
-
-@app.get("/messages/threads")
-async def get_threads(request: Request):
-    """Get all message threads for user"""
-    user = get_user(request)
-    conn = get_db()
-    
-    # Create outreach_log if not exists
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS outreach_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            business_name TEXT,
-            business_phone TEXT,
-            message TEXT,
-            status TEXT DEFAULT 'sent',
-            reply TEXT,
-            reply_time TEXT,
-            mission TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    
-    rows = conn.execute("""
-        SELECT business_name, business_phone, message, reply, 
-               reply_time, status, created_at
-        FROM outreach_log 
-        WHERE user_id=?
-        ORDER BY created_at DESC
-    """, (user["id"],)).fetchall()
-    conn.close()
-    
-    threads = []
-    seen = set()
-    for row in rows:
-        phone = row["business_phone"]
-        if phone in seen:
-            continue
-        seen.add(phone)
-        
-        messages = []
-        messages.append({
-            "id": 1,
-            "direction": "outbound",
-            "body": row["message"],
-            "created_at": row["created_at"][:16],
-            "status": "delivered"
-        })
-        
-        thread_status = "pending"
-        last_message = row["message"]
-        last_time = "Just now"
-        
-        if row["reply"]:
-            messages.append({
-                "id": 2,
-                "direction": "inbound",
-                "body": row["reply"],
-                "created_at": row["reply_time"] or row["created_at"][:16],
-                "status": "received"
-            })
-            last_message = row["reply"]
-            last_time = row["reply_time"] or "Recently"
-            
-            reply_lower = row["reply"].lower()
-            if any(w in reply_lower for w in ["yes","hire","interview","available","interested","opening","position"]):
-                thread_status = "interested"
-            elif any(w in reply_lower for w in ["not hiring","no opening","no position","not available","unfortunately"]):
-                thread_status = "not_hiring"
-        
-        threads.append({
-            "business_name": row["business_name"],
-            "business_phone": row["business_phone"],
-            "last_message": last_message[:80],
-            "last_time": last_time,
-            "unread": 1 if row["reply"] and thread_status == "interested" else 0,
-            "status": thread_status,
-            "messages": messages
-        })
-    
-    return {"threads": threads}
-
-
-@app.post("/messages/reply")
-async def send_reply(request: Request):
-    """Send reply to employer"""
-    user = get_user(request)
-    data = await request.json()
-    
-    to_phone = data.get("to", "")
-    message = data.get("message", "")
-    business_name = data.get("business_name", "")
-    
-    if TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM:
-        from twilio.rest import Client as TwilioClient
-        twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        try:
-            phone = to_phone.replace(" ","").replace("-","").replace("(","").replace(")","").replace("+","")
-            if not phone.startswith("1"):
-                phone = "1" + phone
-            twilio_client.messages.create(
-                body=message,
-                from_=TWILIO_FROM_NUMBER,
-                to=f"+{phone}"
+    titles = {
+        "interview_prep": f"Interview Prep Sheet — {job}",
+        "negotiation_script": f"Salary Negotiation Script — {job}",
+        "credential_roadmap": f"Credential Roadmap — {job}",
+        "advance_plan": "90-Day Career Advance Plan",
+        "followup_templates": "Follow-Up Message Templates",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            res = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
+                json={"model":"claude-sonnet-4-20250514","max_tokens":1500,
+                      "messages":[{"role":"user","content":prompts[doc_type]}]}
             )
-        except Exception as e:
-            print(f"Reply SMS error: {e}")
-    
-    conn = get_db()
-    conn.execute("""
-        INSERT INTO outreach_log (user_id, business_name, business_phone, message, mission)
-        VALUES (?,?,?,?,?)
-    """, (user["id"], business_name, to_phone, message, "reply"))
-    conn.commit()
-    conn.close()
-    
-    return {"status": "sent"}
+            return {"title":titles[doc_type],"content":res.json()["content"][0]["text"]}
+    except: return None
 
-
-@app.post("/coach/suggest-reply")
-async def suggest_reply(request: Request):
-    """Ray suggests a reply based on conversation context"""
-    user = get_user(request)
-    data = await request.json()
-    
-    business_name = data.get("business_name", "")
-    last_message = data.get("last_message", "")
-    thread = data.get("thread", [])
-    user_name = data.get("user_name", "")
-    
-    suggestion = f"Thank you for your response! I am very interested in the position at {business_name}. I am available for an interview at your earliest convenience. What time works best for you?"
-    
-    if ANTHROPIC_API_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": ANTHROPIC_API_KEY,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json"
-                    },
-                    json={
-                        "model": "claude-opus-4-5",
-                        "max_tokens": 150,
-                        "messages": [{
-                            "role": "user",
-                            "content": f"""You are Coach Ray helping {user_name} reply to a job inquiry.
-
-Business: {business_name}
-Their last message: {last_message}
-
-Write a professional, warm reply IN ENGLISH (to send to the employer).
-- Under 160 characters
-- Professional and enthusiastic  
-- Move toward scheduling an interview if they expressed interest
-- If they asked for resume, acknowledge and say you will provide it
-- Return ONLY the reply text"""
-                        }]
-                    }
-                )
-                d = resp.json()
-                if d.get("content"):
-                    suggestion = d["content"][0]["text"].strip()
-        except Exception as e:
-            print(f"Suggest reply error: {e}")
-    
-    return {"suggestion": suggestion}
-
-
-import asyncio
-from typing import AsyncGenerator
-
-# Store active SSE connections per user
-active_connections: dict = {}
-
-@app.get("/messages/stream/{user_id}")
-async def message_stream(user_id: int, request: Request):
-    """Server-Sent Events — pushes new messages to browser instantly"""
-    from fastapi.responses import Response, StreamingResponse
-    
-    async def event_generator() -> AsyncGenerator[str, None]:
-        # Register this connection
-        queue = asyncio.Queue()
-        active_connections[user_id] = queue
-        
-        try:
-            # Send initial ping
-            yield f"data: {json.dumps({'type': 'connected', 'user_id': user_id})}\n\n"
-            
-            while True:
-                # Check if client disconnected
-                if await request.is_disconnected():
-                    break
-                
-                try:
-                    # Wait for new message (timeout every 20s to send keepalive)
-                    message = await asyncio.wait_for(queue.get(), timeout=20.0)
-                    yield f"data: {json.dumps(message)}\n\n"
-                except asyncio.TimeoutError:
-                    # Send keepalive ping
-                    yield f"data: {json.dumps({'type': 'ping'})}\n\n"
-        finally:
-            # Clean up connection
-            if user_id in active_connections:
-                del active_connections[user_id]
-    
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "X-Accel-Buffering": "no"
-        }
-    )
-
-
-@app.post("/messages/twilio-webhook")
-async def twilio_webhook(request: Request):
-    """
-    Twilio calls this when employer replies to SMS.
-    Saves reply to DB and pushes to user in real time.
-    """
-    form = await request.form()
-    
-    from_number = str(form.get("From", ""))
-    to_number = str(form.get("To", ""))
-    body = str(form.get("Body", ""))
-    
-    print(f"Inbound SMS from {from_number}: {body}")
-    
-    if not from_number or not body:
-        return {"status": "ignored"}
-    
-    # Clean the phone number for lookup
-    clean_from = from_number.replace("+","").replace(" ","").replace("-","").replace("(","").replace(")","")
-    if clean_from.startswith("1") and len(clean_from) == 11:
-        clean_from_variants = [
-            from_number,
-            f"({clean_from[1:4]}) {clean_from[4:7]}-{clean_from[7:]}",
-            f"{clean_from[1:4]}-{clean_from[4:7]}-{clean_from[7:]}",
-            clean_from[1:],
-        ]
-    else:
-        clean_from_variants = [from_number, clean_from]
-    
-    conn = get_db()
-    
-    # Find which user sent to this business number
-    user_row = None
-    business_name = from_number
-    
-    for variant in clean_from_variants:
-        row = conn.execute("""
-            SELECT user_id, business_name FROM outreach_log 
-            WHERE business_phone LIKE ?
-            ORDER BY created_at DESC LIMIT 1
-        """, (f"%{variant[-7:]}%",)).fetchone()
-        if row:
-            user_row = row
-            business_name = row["business_name"]
-            break
-    
-    if user_row:
-        user_id = user_row["user_id"]
-        
-        # Save reply to DB
-        conn.execute("""
-            UPDATE outreach_log 
-            SET reply=?, reply_time=datetime('now')
-            WHERE user_id=? AND business_phone LIKE ?
-            AND (reply IS NULL OR reply='')
-        """, (body, user_id, f"%{from_number[-7:]}%"))
-        conn.commit()
-        
-        # Detect reply sentiment
-        reply_lower = body.lower()
-        if any(w in reply_lower for w in ["yes","hire","interview","available","interested","opening","come in"]):
-            status = "interested"
-        elif any(w in reply_lower for w in ["not hiring","no opening","unfortunately","not at this time"]):
-            status = "not_hiring"
-        else:
-            status = "pending"
-        
-        # Push to user in real time via SSE
-        if user_id in active_connections:
-            queue = active_connections[user_id]
-            await queue.put({
-                "type": "new_message",
-                "business_name": business_name,
-                "business_phone": from_number,
-                "body": body,
-                "direction": "inbound",
-                "status": status,
-                "time": "Just now"
-            })
-            print(f"Pushed real-time message to user {user_id}")
-    
-    conn.close()
-    
-    # Return TwiML (required by Twilio)
-    return Response(
-        content="<?xml version=\'1.0\' encoding=\'UTF-8\'?><Response></Response>",
-        media_type="text/xml"
-    )
-
-
-@app.post("/coach/generate-message")
-async def generate_outreach_message(request: Request):
-    data = await request.json()
-    answers = data.get("answers", {})
-    name = ""
+async def send_sms(to: str, body: str) -> Optional[str]:
+    if not twilio_client or not TWILIO_FROM: return "mock-sid"
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if token:
-            conn = get_db()
-            row = conn.execute("SELECT name FROM users WHERE api_token=?", (token,)).fetchone()
-            conn.close()
-            if row:
-                name = row["name"]
-    except: pass
-    job_type = answers.get("job_type", answers.get("work_type", "professional services"))
-    zip_code = answers.get("zip_code", "")
-    narrative = answers.get("narrative", "")
-    availability = answers.get("availability", "Full-time")
-    fallback = f"Hi, my name is {name}. I am looking for {job_type} work in the {zip_code} area, available {availability.lower()}. Do you have any openings?"
-    message = fallback
-    try:
-        import httpx, os
-        key = os.getenv("ANTHROPIC_API_KEY")
-        if key and narrative:
-            prompt = f"Write a professional SMS job outreach under 160 characters IN ENGLISH. Name:{name} Job:{job_type} ZIP:{zip_code} Experience:{narrative[:300]}. Return ONLY the message text."
-            r = httpx.post("https://api.anthropic.com/v1/messages",
-                headers={"x-api-key":key,"anthropic-version":"2023-06-01","content-type":"application/json"},
-                json={"model":"claude-haiku-4-5-20251001","max_tokens":200,"messages":[{"role":"user","content":prompt}]},
-                timeout=15)
-            d = r.json()
-            if d.get("content"):
-                raw = d["content"][0]["text"].strip().strip('"')
-                # Remove any URLs or fake profile links
-                import re
-                message = re.sub(r'https?://\S+', '', raw).strip()
-    except Exception as e:
-        print(f"Claude error: {e}")
-    return {"message": message, "reply": message}
+        msg = twilio_client.messages.create(body=body, from_=TWILIO_FROM, to=to)
+        return msg.sid
+    except Exception as e: print(f"SMS error: {e}"); return None
 
-@app.get("/health")
-async def health():
-    return {"status":"online","service":"WorkBridge API","version":"1.0.0","message":"Built for Hugo. 🌉"}
+def normalize_phone(phone: str) -> str:
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits)==10: return f"+1{digits}"
+    elif len(digits)==11 and digits.startswith("1"): return f"+{digits}"
+    return f"+{digits}"
 
 @app.post("/auth/register")
 async def register(req: RegisterRequest):
     conn = get_db()
-    if conn.execute("SELECT id FROM users WHERE email=?", (req.email,)).fetchone():
-        conn.close()
-        raise HTTPException(400, "Email already registered")
-    token = secrets.token_hex(32)
-    conn.execute("INSERT INTO users (name,email,phone,password_hash,credits,language,api_token) VALUES (?,?,?,?,5,?,?)",
-        (req.name, req.email, req.phone, hash_password(req.password), req.language, token))
-    conn.commit()
-    conn.close()
-    return {"token": token, "credits": 5, "message": "Welcome to WorkBridge! 5 free credits included."}
+    if conn.execute("SELECT id FROM users WHERE email=?",(req.email,)).fetchone():
+        conn.close(); raise HTTPException(400,"Email already registered")
+    token = make_token(req.email)
+    conn.execute("""INSERT INTO users
+        (first_name,last_name,email,password_hash,phone,zip_code,state,language,credits,token)
+        VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (req.first_name,req.last_name,req.email,hash_pw(req.password),
+         req.phone,req.zip_code,req.state,req.language,5,token))
+    conn.commit(); conn.close()
+    return {"token":token,"credits":5,"name":req.first_name,
+            "message":f"Welcome to WorkBridge, {req.first_name}!"}
 
 @app.post("/auth/login")
 async def login(req: LoginRequest):
     conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE email=? AND password_hash=?",
-        (req.email, hash_password(req.password))).fetchone()
-    if not user:
-        conn.close()
-        raise HTTPException(401, "Invalid credentials")
-    token = secrets.token_hex(32)
-    conn.execute("UPDATE users SET api_token=? WHERE id=?", (token, user["id"]))
-    conn.commit()
-    conn.close()
-    return {"token": token, "user_id": user["id"], "name": user["name"], "credits": user["credits"]}
+    u = conn.execute("SELECT * FROM users WHERE email=? AND password_hash=?",
+        (req.email,hash_pw(req.password))).fetchone()
+    if not u: conn.close(); raise HTTPException(401,"Invalid credentials")
+    token = make_token(req.email)
+    conn.execute("UPDATE users SET token=? WHERE id=?",(token,u["id"]))
+    conn.commit(); conn.close()
+    return {"token":token,"name":u["first_name"],"credits":u["credits"],
+            "language":u["language"],"zip_code":u["zip_code"],"state":u["state"]}
 
+@app.get("/auth/me")
+async def me(user=Depends(get_user)):
+    return {k:v for k,v in user.items() if k!="password_hash"}
 
-
-# PRE-BUILT MAJOR EMPLOYER DATABASE
-# These companies are ALWAYS hiring in every ZIP code
-MAJOR_EMPLOYERS = {
-    "food": [
-        {"name": "McDonald's", "phone_lookup": "https://www.mcdonalds.com/us/en-us/restaurant-locator.html", "hiring_url": "https://jobs.mchire.com", "always_hiring": True},
-        {"name": "Starbucks", "hiring_url": "https://apply.starbucks.com", "always_hiring": True},
-        {"name": "Taco Bell", "hiring_url": "https://jobs.tacobell.com", "always_hiring": True},
-        {"name": "Burger King", "hiring_url": "https://jobs.burgerking.com", "always_hiring": True},
-        {"name": "Subway", "hiring_url": "https://www.subway.com/careers", "always_hiring": True},
-        {"name": "Chick-fil-A", "hiring_url": "https://www.chick-fil-a.com/careers", "always_hiring": True},
-        {"name": "Chipotle", "hiring_url": "https://jobs.chipotle.com", "always_hiring": True},
-        {"name": "Dominos", "hiring_url": "https://jobs.dominos.com", "always_hiring": True},
-        {"name": "Pizza Hut", "hiring_url": "https://jobs.pizzahut.com", "always_hiring": True},
-        {"name": "Dunkin", "hiring_url": "https://dunkinbrands.com/careers", "always_hiring": True},
-    ],
-    "retail": [
-        {"name": "Walmart", "hiring_url": "https://careers.walmart.com", "always_hiring": True},
-        {"name": "Target", "hiring_url": "https://jobs.target.com", "always_hiring": True},
-        {"name": "Home Depot", "hiring_url": "https://careers.homedepot.com", "always_hiring": True},
-        {"name": "Lowes", "hiring_url": "https://talent.lowes.com", "always_hiring": True},
-        {"name": "Costco", "hiring_url": "https://www.costco.com/jobs.html", "always_hiring": True},
-        {"name": "Kroger", "hiring_url": "https://jobs.kroger.com", "always_hiring": True},
-        {"name": "CVS Pharmacy", "hiring_url": "https://jobs.cvshealth.com", "always_hiring": True},
-        {"name": "Walgreens", "hiring_url": "https://jobs.walgreens.com", "always_hiring": True},
-        {"name": "Dollar General", "hiring_url": "https://jobs.dollargeneral.com", "always_hiring": True},
-        {"name": "Dollar Tree", "hiring_url": "https://jobs.dollartree.com", "always_hiring": True},
-    ],
-    "logistics": [
-        {"name": "Amazon", "hiring_url": "https://hiring.amazon.com", "always_hiring": True},
-        {"name": "UPS", "hiring_url": "https://jobs.ups.com", "always_hiring": True},
-        {"name": "FedEx", "hiring_url": "https://careers.fedex.com", "always_hiring": True},
-        {"name": "DHL", "hiring_url": "https://careers.dhl.com", "always_hiring": True},
-        {"name": "USPS", "hiring_url": "https://about.usps.com/careers", "always_hiring": True},
-    ],
-    "healthcare": [
-        {"name": "CVS Health", "hiring_url": "https://jobs.cvshealth.com", "always_hiring": True},
-        {"name": "Kaiser Permanente", "hiring_url": "https://jobs.kaiserpermanente.org", "always_hiring": True},
-        {"name": "HCA Healthcare", "hiring_url": "https://careers.hcahealthcare.com", "always_hiring": True},
-        {"name": "Kindred Healthcare", "hiring_url": "https://jobs.kindredhealthcare.com", "always_hiring": True},
-        {"name": "Brookdale Senior Living", "hiring_url": "https://jobs.brookdale.com", "always_hiring": True},
-        {"name": "Sunrise Senior Living", "hiring_url": "https://careers.sunriseseniorliving.com", "always_hiring": True},
-        {"name": "Atria Senior Living", "hiring_url": "https://jobs.atriaseniorliving.com", "always_hiring": True},
-        {"name": "RehabCare", "hiring_url": "https://jobs.rehabcare.com", "always_hiring": True},
-    ],
-    "hospitality": [
-        {"name": "Marriott Hotels", "hiring_url": "https://jobs.marriott.com", "always_hiring": True},
-        {"name": "Hilton Hotels", "hiring_url": "https://jobs.hilton.com", "always_hiring": True},
-        {"name": "Hyatt", "hiring_url": "https://careers.hyatt.com", "always_hiring": True},
-        {"name": "IHG Hotels", "hiring_url": "https://careers.ihg.com", "always_hiring": True},
-    ],
-    "security": [
-        {"name": "Allied Universal Security", "hiring_url": "https://jobs.aus.com", "always_hiring": True},
-        {"name": "Securitas Security", "hiring_url": "https://www.securitasinc.com/careers", "always_hiring": True},
-        {"name": "G4S Security", "hiring_url": "https://careers.g4s.com", "always_hiring": True},
-        {"name": "Garda World Security", "hiring_url": "https://www.garda.com/careers", "always_hiring": True},
-    ],
-    "transportation": [
-        {"name": "Uber", "hiring_url": "https://www.uber.com/us/en/drive", "always_hiring": True},
-        {"name": "Lyft", "hiring_url": "https://www.lyft.com/driver", "always_hiring": True},
-        {"name": "DoorDash", "hiring_url": "https://dasher.doordash.com", "always_hiring": True},
-        {"name": "Instacart", "hiring_url": "https://shoppers.instacart.com", "always_hiring": True},
-        {"name": "Grubhub", "hiring_url": "https://delivery.grubhub.com", "always_hiring": True},
-    ],
-    "cleaning": [
-        {"name": "ServiceMaster Clean", "hiring_url": "https://www.servicemaster.com/careers", "always_hiring": True},
-        {"name": "Merry Maids", "hiring_url": "https://www.merrymaids.com/careers", "always_hiring": True},
-        {"name": "Jan-Pro Cleaning", "hiring_url": "https://www.jan-pro.com/careers", "always_hiring": True},
-        {"name": "ABM Industries", "hiring_url": "https://jobs.abm.com", "always_hiring": True},
-    ],
-    "construction": [
-        {"name": "Manpower Group", "hiring_url": "https://www.manpower.com", "always_hiring": True},
-        {"name": "Kelly Services", "hiring_url": "https://jobs.kellyservices.com", "always_hiring": True},
-        {"name": "Robert Half", "hiring_url": "https://www.roberthalf.com/jobs", "always_hiring": True},
-        {"name": "Adecco Staffing", "hiring_url": "https://www.adeccousa.com/jobs", "always_hiring": True},
-    ]
-}
-
-
-async def search_local_db(category: str, zip_code: str, position: str, limit: int = 20) -> list:
-    """Search our pre-built business database first (fastest)"""
-    results = []
-    try:
-        db_path = "/data/workbridge_businesses.db"
-        if not os.path.exists(db_path):
-            return []
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        
-        # Search by ZIP and category
-        rows = conn.execute("""
-            SELECT * FROM businesses 
-            WHERE (zip_code=? OR zip_code LIKE ?)
-            AND (category LIKE ? OR name LIKE ?)
-            AND (phone IS NOT NULL AND phone != '')
-            ORDER BY hiring DESC, rating DESC
-            LIMIT ?
-        """, (zip_code, zip_code[:3]+'%', f'%{category}%', f'%{position}%', limit)).fetchall()
-        
-        for row in rows:
-            results.append({
-                "name": row["name"],
-                "phone": row["phone"] or "",
-                "address": f"{row['address']}, {row['city']}, {row['state']}",
-                "category": row["category"],
-                "rating": 4.5 if row["hiring"] else 4.0,
-                "source": row["source"],
-                "hiring": bool(row["hiring"]),
-                "hiring_url": row["hiring_url"] or ""
-            })
-        conn.close()
-    except Exception as e:
-        print(f"Local DB search error: {e}")
-    return results
-
-async def get_major_employers_by_category(category: str, zip_code: str, position: str) -> list:
-    """Return major employers always hiring in this category"""
-    results = []
-    # Map category to employer list
-    cat_lower = category.lower()
-    matched_category = None
-    
-    category_map = {
-        "food": ["food","restaurant","kitchen","cook","server","cashier","fast food","barista"],
-        "retail": ["retail","store","sales","cashier","associate","merchandise"],
-        "logistics": ["warehouse","shipping","delivery","driver","logistics","distribution"],
-        "healthcare": ["healthcare","medical","caregiver","nurse","aide","health","senior","care"],
-        "hospitality": ["hotel","hospitality","housekeeping","front desk","concierge"],
-        "security": ["security","guard","patrol","surveillance"],
-        "transportation": ["driver","delivery","gig","rideshare","transport"],
-        "cleaning": ["cleaning","janitorial","maid","housekeeping","maintenance"],
-        "construction": ["construction","labor","general labor","warehouse","staffing"],
-    }
-    
-    for emp_category, keywords in category_map.items():
-        if any(kw in cat_lower or kw in position.lower() for kw in keywords):
-            matched_category = emp_category
-            break
-    
-    if not matched_category:
-        # Return mix of universal employers
-        matched_category = "retail"
-    
-    employers = MAJOR_EMPLOYERS.get(matched_category, [])
-    area_code = zip_code[:3] if zip_code else "949"
-    
-    for i, emp in enumerate(employers[:10]):
-        results.append({
-            "name": emp["name"],
-            "phone": f"Apply online: {emp['hiring_url']}",
-            "address": f"Multiple locations near {zip_code}",
-            "category": category,
-            "rating": 4.5,
-            "source": "MajorEmployer",
-            "hiring_url": emp["hiring_url"],
-            "always_hiring": True,
-            "note": "This company is actively hiring in your area"
-        })
-    
-    return results
-
-async def scrape_yellowpages(category: str, location: str, client: httpx.AsyncClient) -> list:
-    """Scrape Yellow Pages for real businesses with phone numbers"""
-    results = []
-    try:
-        url = f"https://www.yellowpages.com/search?search_terms={quote_plus(category)}&geo_location_terms={quote_plus(location)}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-        }
-        resp = await client.get(url, headers=headers, follow_redirects=True)
-        if resp.status_code == 200:
-            html = resp.text
-            # Extract business names
-            names = re.findall(r'class="business-name"[^>]*><span[^>]*>([^<]+)<', html)
-            phones = re.findall(r'class="phones phone primary"[^>]*>([^<]+)<', html)
-            addresses = re.findall(r'class="street-address"[^>]*>([^<]+)<', html)
-            localities = re.findall(r'class="locality"[^>]*>([^<]+)<', html)
-            for i, name in enumerate(names[:15]):
-                phone = phones[i] if i < len(phones) else ""
-                addr_parts = []
-                if i < len(addresses): addr_parts.append(addresses[i].strip())
-                if i < len(localities): addr_parts.append(localities[i].strip())
-                if phone and name:
-                    results.append({
-                        "name": name.strip(),
-                        "phone": phone.strip(),
-                        "address": ", ".join(addr_parts) if addr_parts else location,
-                        "source": "YellowPages"
-                    })
-    except Exception as e:
-        print(f"YellowPages scrape error: {e}")
-    return results
-
-async def scrape_whitepages_biz(category: str, location: str, client: httpx.AsyncClient) -> list:
-    """Scrape WhitePages business listings"""
-    results = []
-    try:
-        url = f"https://www.whitepages.com/business/{quote_plus(category)}/{quote_plus(location)}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        }
-        resp = await client.get(url, headers=headers, follow_redirects=True)
-        if resp.status_code == 200:
-            html = resp.text
-            names = re.findall(r'"name":\s*"([^"]+)"', html)
-            phones = re.findall(r'"telephone":\s*"([^"]+)"', html)
-            addresses = re.findall(r'"streetAddress":\s*"([^"]+)"', html)
-            for i, name in enumerate(names[:10]):
-                phone = phones[i] if i < len(phones) else ""
-                addr = addresses[i] if i < len(addresses) else location
-                if name and len(name) > 2:
-                    results.append({
-                        "name": name.strip(),
-                        "phone": phone.strip() if phone else "",
-                        "address": addr.strip(),
-                        "source": "WhitePages"
-                    })
-    except Exception as e:
-        print(f"WhitePages scrape error: {e}")
-    return results
-
-async def scrape_indeed_jobs(position: str, location: str, client: httpx.AsyncClient) -> list:
-    """Scrape Indeed for employers actively hiring"""
-    results = []
-    try:
-        url = f"https://www.indeed.com/jobs?q={quote_plus(position)}&l={quote_plus(location)}&limit=20"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-        resp = await client.get(url, headers=headers, follow_redirects=True)
-        if resp.status_code == 200:
-            html = resp.text
-            companies = re.findall(r'"companyName":\s*"([^"]+)"', html)
-            locations = re.findall(r'"formattedLocation":\s*"([^"]+)"', html)
-            seen = set()
-            for i, company in enumerate(companies[:15]):
-                if company not in seen:
-                    seen.add(company)
-                    loc = locations[i] if i < len(locations) else location
-                    results.append({
-                        "name": company.strip(),
-                        "phone": "",
-                        "address": loc.strip(),
-                        "source": "Indeed",
-                        "hiring": True
-                    })
-    except Exception as e:
-        print(f"Indeed scrape error: {e}")
-    return results
-
-async def scrape_ziprecruiter(position: str, location: str, client: httpx.AsyncClient) -> list:
-    """Scrape ZipRecruiter for hiring employers"""
-    results = []
-    try:
-        url = f"https://www.ziprecruiter.com/jobs-search?search={quote_plus(position)}&location={quote_plus(location)}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        }
-        resp = await client.get(url, headers=headers, follow_redirects=True)
-        if resp.status_code == 200:
-            html = resp.text
-            companies = re.findall(r'"hiring_company":\s*\{[^}]*"name":\s*"([^"]+)"', html)
-            locations_found = re.findall(r'"location":\s*"([^"]+)"', html)
-            seen = set()
-            for i, company in enumerate(companies[:15]):
-                if company not in seen:
-                    seen.add(company)
-                    loc = locations_found[i] if i < len(locations_found) else location
-                    results.append({
-                        "name": company.strip(),
-                        "phone": "",
-                        "address": loc.strip(),
-                        "source": "ZipRecruiter",
-                        "hiring": True
-                    })
-    except Exception as e:
-        print(f"ZipRecruiter scrape error: {e}")
-    return results
-
-async def scrape_craigslist_jobs(position: str, zip_code: str, client: httpx.AsyncClient) -> list:
-    """Scrape Craigslist job postings for employer names"""
-    results = []
-    city_map = {
-        "949": "orangecounty", "310": "losangeles", "213": "losangeles",
-        "212": "newyork", "312": "chicago", "713": "houston",
-        "602": "phoenix", "215": "philadelphia", "210": "sanantonio",
-        "619": "sandiego", "214": "dallas", "408": "sfbay",
-    }
-    area_code = zip_code[:3]
-    city = city_map.get(area_code, "sfbay")
-    try:
-        url = f"https://{city}.craigslist.org/search/jjj?query={quote_plus(position)}"
-        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
-        resp = await client.get(url, headers=headers, follow_redirects=True)
-        if resp.status_code == 200:
-            html = resp.text
-            titles = re.findall(r'class="titlestring">([^<]+)<', html)
-            seen = set()
-            for title in titles[:10]:
-                # Extract company from job title
-                parts = title.split(" at ")
-                company = parts[-1].strip() if len(parts) > 1 else title.strip()
-                if company and company not in seen and len(company) > 3:
-                    seen.add(company)
-                    results.append({
-                        "name": company,
-                        "phone": "",
-                        "address": f"{zip_code} area",
-                        "source": "Craigslist",
-                        "hiring": True
-                    })
-    except Exception as e:
-        print(f"Craigslist error: {e}")
-    return results
+@app.post("/profile/update")
+async def update_profile(req: ProfileUpdateRequest, user=Depends(get_user)):
+    conn = get_db()
+    for f in ["phone","language","skills","target_job","availability","zip_code","state"]:
+        v = getattr(req,f,None)
+        if v is not None: conn.execute(f"UPDATE users SET {f}=? WHERE id=?",(v,user["id"]))
+    conn.commit(); conn.close()
+    return {"status":"updated"}
 
 @app.post("/search/businesses")
-async def search_businesses(req: SearchRequest, request: Request):
-    user = get_user(request)
-    businesses = []
-    seen_phones = set()
+async def search_businesses(req: BusinessSearchRequest, user=Depends(get_user)):
+    if not GOOGLE_KEY:
+        return {"businesses":[
+            {"name":f"Sample Business {i}","phone":f"94955500{10+i:02d}",
+             "address":f"{i*100} Main St, {req.zip_code}","rating":round(3.5+(i%3)*0.5,1),"place_id":f"mock_{i}"}
+            for i in range(1,6)],"total":5}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            geo = await client.get("https://maps.googleapis.com/maps/api/geocode/json",
+                params={"address":req.zip_code,"key":GOOGLE_KEY})
+            loc = geo.json()["results"][0]["geometry"]["location"]
+            places = await client.get("https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+                params={"location":f"{loc['lat']},{loc['lng']}","radius":req.radius,
+                        "keyword":req.category,"type":"establishment","key":GOOGLE_KEY})
+            results = places.json().get("results",[])
+            businesses = []
+            for r in results[:req.max_results]:
+                phone = ""
+                if r.get("place_id"):
+                    detail = await client.get("https://maps.googleapis.com/maps/api/place/details/json",
+                        params={"place_id":r["place_id"],"fields":"formatted_phone_number","key":GOOGLE_KEY})
+                    phone = detail.json().get("result",{}).get("formatted_phone_number","")
+                businesses.append({"name":r.get("name",""),"phone":phone,
+                    "address":r.get("vicinity",""),"rating":r.get("rating",0),"place_id":r.get("place_id","")})
+        return {"businesses":[b for b in businesses if b["phone"]],"total":len(businesses)}
+    except Exception as e: raise HTTPException(500,str(e))
 
-    async def add_biz(name, phone, address, category, rating=4.0, source=""):
-        if phone and phone not in seen_phones:
-            seen_phones.add(phone)
-            businesses.append({
-                "name": name, "phone": phone, "address": address,
-                "category": category, "rating": rating, "source": source
-            })
-
-    async with httpx.AsyncClient(timeout=10) as client:
-
-        # SOURCE -1: Our pre-built business database (fastest, most accurate)
-        local_results = await search_local_db(req.category, req.zip_code, req.position)
-        for b in local_results:
-            await add_biz(b["name"], b["phone"], b["address"], req.category, b["rating"], b["source"])
-            
-        # SOURCE 0: Major employers always hiring (McDonald's, Starbucks, Walmart etc)
-        major_results = await get_major_employers_by_category(req.category, req.zip_code, req.position)
-        for b in major_results:
-            await add_biz(b["name"], b["phone"], b["address"], req.category, b["rating"], "MajorEmployer")
-
-        # SOURCE 1: Yellow Pages scraper (FREE)
-        if len(businesses) < 20:
-            yp_results = await scrape_yellowpages(req.category, req.zip_code, client)
-            for b in yp_results:
-                await add_biz(b["name"], b["phone"], b["address"], req.category, 4.2, "YellowPages")
-
-        # SOURCE 2: White Pages Business (FREE)
-        if len(businesses) < 20:
-            wp_results = await scrape_whitepages_biz(req.category, req.zip_code, client)
-            for b in wp_results:
-                await add_biz(b["name"], b["phone"], b["address"], req.category, 4.0, "WhitePages")
-
-        # SOURCE 3: Indeed Jobs - employers actively hiring (FREE scrape)
-        if req.position and len(businesses) < 20:
-            indeed_results = await scrape_indeed_jobs(req.position, req.zip_code, client)
-            for b in indeed_results:
-                await add_biz(b["name"], b.get("phone",""), b["address"], req.category, 4.3, "Indeed")
-
-        # SOURCE 4: ZipRecruiter - hiring employers (FREE scrape)
-        if req.position and len(businesses) < 20:
-            zip_results = await scrape_ziprecruiter(req.position, req.zip_code, client)
-            for b in zip_results:
-                await add_biz(b["name"], b.get("phone",""), b["address"], req.category, 4.2, "ZipRecruiter")
-
-        # SOURCE 5: Craigslist Jobs (FREE, no blocks)
-        if req.position and len(businesses) < 20:
-            cl_results = await scrape_craigslist_jobs(req.position, req.zip_code, client)
-            for b in cl_results:
-                await add_biz(b["name"], b.get("phone",""), b["address"], req.category, 4.0, "Craigslist")
-
-        # SOURCE 6: OpenStreetMap Nominatim (FREE, no key)
-        try:
-            osm = await client.get(
-                "https://nominatim.openstreetmap.org/search",
-                params={"q": f"{req.category} {req.position} near {req.zip_code}",
-                        "format": "json", "limit": 10, "addressdetails": 1,
-                        "countrycodes": "us"},
-                headers={"User-Agent": "WorkBridge/1.0 contact@workbridge.com"}
-            )
-            for r in osm.json()[:10]:
-                name = r.get("display_name","").split(",")[0]
-                addr = f"{r.get('address',{}).get('road','')}, {req.zip_code}"
-                if name and len(name) > 3:
-                    await add_biz(name, f"({req.zip_code[:3]}) {555}-{1000+len(businesses)*7}", addr, req.category, 4.0, "OSM")
-        except Exception as e:
-            print(f"OSM error: {e}")
-
-        # SOURCE 2: Bing Maps Local Search (FREE 125K/month)
-        BING_KEY = os.getenv("BING_MAPS_KEY", "")
-        if BING_KEY and len(businesses) < 15:
-            try:
-                bing = await client.get(
-                    "https://dev.virtualearth.net/REST/v1/LocalSearch/",
-                    params={"query": f"{req.category} {req.position}",
-                            "userLocation": req.zip_code,
-                            "maxResults": 20,
-                            "key": BING_KEY}
-                )
-                for biz in bing.json().get("resourceSets",[{}])[0].get("resources",[]):
-                    phone = biz.get("PhoneNumber","")
-                    name = biz.get("name","")
-                    addr = biz.get("Address",{}).get("formattedAddress","")
-                    if phone and name:
-                        await add_biz(name, phone, addr, req.category, 4.0, "Bing")
-            except Exception as e:
-                print(f"Bing error: {e}")
-
-        # SOURCE 3: Yelp Fusion API (FREE 500/day - needs free key)
-        YELP_KEY = os.getenv("YELP_API_KEY", "")
-        if YELP_KEY:
-            try:
-                yelp = await client.get(
-                    "https://api.yelp.com/v3/businesses/search",
-                    headers={"Authorization": f"Bearer {YELP_KEY}"},
-                    params={"term": f"{req.category} {req.position}",
-                            "location": req.zip_code, "limit": 20, "radius": req.radius_miles*1609}
-                )
-                for biz in yelp.json().get("businesses", []):
-                    phone = biz.get("display_phone","").replace(" ","").replace("-","")
-                    if phone:
-                        addr = ", ".join(biz.get("location",{}).get("display_address",[]))
-                        await add_biz(biz["name"], biz["display_phone"], addr, req.category, biz.get("rating",4.0), "Yelp")
-            except Exception as e:
-                print(f"Yelp error: {e}")
-
-        # SOURCE 3: Google Places (if key available)
-        if GOOGLE_PLACES_KEY and len(businesses) < 10:
-            try:
-                geo = await client.get("https://maps.googleapis.com/maps/api/geocode/json",
-                    params={"address": req.zip_code, "key": GOOGLE_PLACES_KEY})
-                geo_data = geo.json()
-                if geo_data.get("results"):
-                    loc = geo_data["results"][0]["geometry"]["location"]
-                    lat, lng = loc["lat"], loc["lng"]
-                    resp = await client.get("https://maps.googleapis.com/maps/api/place/nearbysearch/json",
-                        params={"location":f"{lat},{lng}","radius":req.radius_miles*1609,
-                                "keyword":req.category,"key":GOOGLE_PLACES_KEY})
-                    for place in resp.json().get("results",[])[:10]:
-                        detail = await client.get("https://maps.googleapis.com/maps/api/place/details/json",
-                            params={"place_id":place["place_id"],
-                                    "fields":"name,formatted_phone_number,formatted_address",
-                                    "key":GOOGLE_PLACES_KEY})
-                        d = detail.json().get("result",{})
-                        if d.get("formatted_phone_number"):
-                            await add_biz(place.get("name",""), d["formatted_phone_number"],
-                                d.get("formatted_address",""), req.category, place.get("rating",4.0), "Google")
-                        await asyncio.sleep(0.05)
-            except Exception as e:
-                print(f"Google error: {e}")
-
-        # SOURCE 4: USAJobs.gov FREE API (for job searches)
-        if req.category.lower() in ["job","jobs","employment","work","hiring"] or req.position:
-            try:
-                usa = await client.get(
-                    "https://data.usajobs.gov/api/search",
-                    headers={"Host":"data.usajobs.gov","User-Agent":"brandondeary777@gmail.com","Authorization-Key":""},
-                    params={"Keyword": f"{req.position} {req.category}", "LocationName": req.zip_code, "ResultsPerPage": 10}
-                )
-                for job in usa.json().get("SearchResult",{}).get("SearchResultItems",[])[:5]:
-                    pos = job.get("MatchedObjectDescriptor",{})
-                    org = pos.get("OrganizationName","Federal Agency")
-                    phone = pos.get("UserArea",{}).get("Details",{}).get("AgencyContactPhone","(202) 555-0100")
-                    addr = pos.get("PositionLocation",[{}])[0].get("LocationName","Washington, DC")
-                    await add_biz(org, phone, addr, req.category, 4.5, "USAJobs")
-            except Exception as e:
-                print(f"USAJobs error: {e}")
-
-    # FALLBACK: Generate realistic local businesses if still empty
-    if len(businesses) < 5:
-        city_map = {
-            "92653": "Laguna Hills, CA", "92651": "Laguna Beach, CA",
-            "90210": "Beverly Hills, CA", "10001": "New York, NY",
-            "77001": "Houston, TX", "60601": "Chicago, IL",
-            "85001": "Phoenix, AZ", "19101": "Philadelphia, PA",
-        }
-        city = city_map.get(req.zip_code, f"City, {req.zip_code}")
-        category_map = {
-            "healthcare": ["Sunrise Medical Group","Pacific Care Center","Coastal Health Services","Harbor View Clinic","Golden State Medical"],
-            "construction": ["Pacific Builders","Coastal Construction","Harbor General Contractors","Sunrise Development","Premier Build Co"],
-            "cleaning": ["Sparkle Clean Pro","Pacific Maids","Coastal Cleaning Services","Fresh Start Cleaning","Premier Home Care"],
-            "food": ["Pacific Restaurant Group","Sunrise Catering","Coastal Dining","Harbor Kitchen","Golden State Foods"],
-            "retail": ["Pacific Retail Group","Coastal Commerce","Harbor Trading Co","Sunrise Stores","Premier Retail"],
-            "security": ["Pacific Security","Coastal Guard Services","Harbor Protection","Sunrise Security","Elite Guard Co"],
-        }
-        names = category_map.get(req.category.lower(), [
-            f"Pacific {req.category} Group", f"Coastal {req.position} Services",
-            f"Harbor {req.category} Center", f"Sunrise {req.position} Agency",
-            f"Golden State {req.category}", f"Premier {req.position} Solutions",
-            f"Westside {req.category} Associates", f"Elite {req.position} Network",
-            f"Bay Area {req.category}", f"Metro {req.position} Partners"
-        ])
-        area_code = req.zip_code[:3] if req.zip_code else "949"
-        for i, name in enumerate(names[:10]):
-            phone = f"({area_code}) {500+i*7:03d}-{1000+i*17:04d}"
-            await add_biz(name, phone, f"{100+i*50} Main St, {city}", req.category, round(3.8+(i%5)*0.1,1), "Directory")
-
-    return {"businesses": businesses[:20], "count": len(businesses[:20]), "sources": list(set(b.get("source","") for b in businesses))}
 @app.post("/sms/blast")
-async def send_blast(req: BlastRequest, background_tasks: BackgroundTasks, request: Request):
-    user = get_user(request)
-    needed = len(req.businesses)
+async def sms_blast(req: BlastRequest, user=Depends(get_user)):
     conn = get_db()
-    current = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()["credits"]
-    if current < needed:
-        conn.close()
-        raise HTTPException(402, f"Need {needed} credits, have {current}")
-    conn.execute("UPDATE users SET credits=credits-? WHERE id=?", (needed, user["id"]))
-    blast_ids = []
+    u = conn.execute("SELECT * FROM users WHERE id=?",(user["id"],)).fetchone()
+    if u["credits"] < len(req.businesses):
+        conn.close(); raise HTTPException(402,f"Need {len(req.businesses)} credits, have {u['credits']}")
+    sent,failed,conv_ids = 0,[],[]
     for biz in req.businesses:
-        c = conn.execute("INSERT INTO sms_blast (user_id,recipient_name,recipient_phone,recipient_address,category,position,zip_code,message_text) VALUES (?,?,?,?,?,?,?,?)",
-            (user["id"],biz.get("name"),biz.get("phone"),biz.get("address"),req.category,req.position,req.zip_code,req.message))
-        blast_ids.append(c.lastrowid)
-    conn.commit()
-    conn.close()
-    background_tasks.add_task(execute_blast, blast_ids, req.businesses, req.message)
-    return {"status":"queued","count":needed,"credits_remaining":current-needed}
+        phone_raw = biz.get("phone","")
+        if not phone_raw: failed.append(biz.get("name","Unknown")); continue
+        phone = normalize_phone(phone_raw)
+        biz_name = biz.get("name","Business")
+        existing = conn.execute("SELECT id FROM conversations WHERE user_id=? AND contact_phone=?",
+            (user["id"],phone)).fetchone()
+        if existing:
+            conv_id = existing["id"]
+            conn.execute("UPDATE conversations SET status='active',last_message=?,last_message_at=? WHERE id=?",
+                (req.message,datetime.utcnow().isoformat(),conv_id))
+        else:
+            cur = conn.execute("""INSERT INTO conversations
+                (user_id,contact_phone,contact_name,contact_company,last_message,last_message_at)
+                VALUES (?,?,?,?,?,?)""",(user["id"],phone,biz_name,biz_name,req.message,datetime.utcnow().isoformat()))
+            conv_id = cur.lastrowid
+        sid = await send_sms(phone, req.message)
+        conn.execute("""INSERT INTO messages
+            (conversation_id,user_id,direction,body,from_number,to_number,twilio_sid)
+            VALUES (?,?,?,?,?,?,?)""",(conv_id,user["id"],"outbound",req.message,TWILIO_FROM or "WorkBridge",phone,sid or ""))
+        if sid: sent+=1; conv_ids.append(conv_id)
+        else: failed.append(biz_name)
+    if sent>0: conn.execute("UPDATE users SET credits=credits-? WHERE id=?",(sent,user["id"]))
+    new_bal = conn.execute("SELECT credits FROM users WHERE id=?",(user["id"],)).fetchone()["credits"]
+    conn.commit(); conn.close()
+    await manager.send(u["token"],{"type":"blast_complete","sent":sent,"failed":failed,
+        "credits_remaining":new_bal,"conversation_ids":conv_ids})
+    return {"sent":sent,"failed":len(failed),"credits_remaining":new_bal}
 
-async def execute_blast(blast_ids, businesses, message):
-    for blast_id, biz in zip(blast_ids, businesses):
-        phone = "".join(c for c in biz.get("phone","") if c.isdigit())
-        if len(phone) == 10: phone = "+1" + phone
-        elif not phone.startswith("+"): phone = "+" + phone
-        try:
-            if TWILIO_ACCOUNT_SID:
-                from twilio.rest import Client
-                Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN).messages.create(
-                    body=message, from_=TWILIO_FROM_NUMBER, to=phone)
-            conn = get_db()
-            conn.execute("UPDATE sms_blast SET status='sent',sent_at=? WHERE id=?",
-                (datetime.utcnow().isoformat(), blast_id))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"SMS error: {e}")
-        await asyncio.sleep(0.2)
+@app.get("/sms/inbox")
+async def get_inbox(user=Depends(get_user)):
+    conn = get_db()
+    convs = conn.execute("SELECT * FROM conversations WHERE user_id=? ORDER BY last_message_at DESC",(user["id"],)).fetchall()
+    conn.close()
+    return {"conversations":[dict(c) for c in convs]}
+
+@app.get("/sms/thread/{conversation_id}")
+async def get_thread(conversation_id: int, user=Depends(get_user)):
+    conn = get_db()
+    conv = conn.execute("SELECT * FROM conversations WHERE id=? AND user_id=?",(conversation_id,user["id"])).fetchone()
+    if not conv: conn.close(); raise HTTPException(404,"Not found")
+    msgs = conn.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY sent_at ASC",(conversation_id,)).fetchall()
+    conn.execute("UPDATE conversations SET unread_count=0 WHERE id=?",(conversation_id,))
+    conn.commit(); conn.close()
+    return {"conversation":dict(conv),"messages":[dict(m) for m in msgs]}
+
+@app.post("/sms/reply")
+async def send_reply(req: ReplyRequest, user=Depends(get_user)):
+    conn = get_db()
+    conv = conn.execute("SELECT * FROM conversations WHERE id=? AND user_id=?",(req.conversation_id,user["id"])).fetchone()
+    if not conv: conn.close(); raise HTTPException(404,"Not found")
+    u = conn.execute("SELECT credits FROM users WHERE id=?",(user["id"],)).fetchone()
+    if u["credits"]<1: conn.close(); raise HTTPException(402,"No credits")
+    sid = await send_sms(conv["contact_phone"],req.body)
+    conn.execute("""INSERT INTO messages
+        (conversation_id,user_id,direction,body,from_number,to_number,twilio_sid)
+        VALUES (?,?,?,?,?,?,?)""",(req.conversation_id,user["id"],"outbound",req.body,TWILIO_FROM or "WorkBridge",conv["contact_phone"],sid or ""))
+    conn.execute("UPDATE conversations SET last_message=?,last_message_at=? WHERE id=?",
+        (req.body,datetime.utcnow().isoformat(),req.conversation_id))
+    conn.execute("UPDATE users SET credits=credits-1 WHERE id=?",(user["id"],))
+    new_bal = conn.execute("SELECT credits FROM users WHERE id=?",(user["id"],)).fetchone()["credits"]
+    conn.commit(); conn.close()
+    return {"status":"sent","credits_remaining":new_bal}
 
 @app.post("/sms/reply/webhook")
-async def sms_webhook(request: Request):
+async def inbound_webhook(request: Request):
     form = await request.form()
     from_number = form.get("From","")
-    body = form.get("Body","")
+    body = form.get("Body","").strip()
     conn = get_db()
-    blast = conn.execute("SELECT * FROM sms_blast WHERE recipient_phone LIKE ? AND status='sent' ORDER BY sent_at DESC LIMIT 1",
-        (f"%{from_number[-10:]}%",)).fetchone()
-    if blast:
-        conn.execute("UPDATE sms_blast SET status='replied',reply_text=?,replied_at=? WHERE id=?",
-            (body, datetime.utcnow().isoformat(), blast["id"]))
+    conv = conn.execute("SELECT * FROM conversations WHERE contact_phone=? ORDER BY last_message_at DESC LIMIT 1",(from_number,)).fetchone()
+    if conv:
+        conn.execute("""INSERT INTO messages
+            (conversation_id,user_id,direction,body,from_number,to_number,status)
+            VALUES (?,?,?,?,?,?,?)""",(conv["id"],conv["user_id"],"inbound",body,from_number,TWILIO_FROM or "WorkBridge","received"))
+        conn.execute("""UPDATE conversations SET last_message=?,last_message_at=?,
+            unread_count=unread_count+1,status='replied' WHERE id=?""",(body,datetime.utcnow().isoformat(),conv["id"]))
         conn.commit()
+        u = conn.execute("SELECT * FROM users WHERE id=?",(conv["user_id"],)).fetchone()
+        if u:
+            await manager.send(u["token"],{"type":"new_message","conversation_id":conv["id"],
+                "from":conv["contact_name"],"body":body,"alert":f"🎉 {conv['contact_name']} replied!"})
+            if u["phone"]:
+                await send_sms(u["phone"],f"WorkBridge: {conv['contact_name']} replied!\n\"{body[:80]}\"\nLog in: workbridgesms.com")
     conn.close()
-    return {"status":"ok"}
+    return PlainTextResponse(str(MessagingResponse()),media_type="application/xml")
 
 @app.get("/sms/history")
-async def sms_history(request: Request):
-    user = get_user(request)
+async def sms_history(limit: int=50, user=Depends(get_user)):
     conn = get_db()
-    rows = conn.execute("SELECT * FROM sms_blast WHERE user_id=? ORDER BY sent_at DESC LIMIT 50",(user["id"],)).fetchall()
+    msgs = conn.execute("""SELECT m.*,c.contact_name,c.contact_phone FROM messages m
+        JOIN conversations c ON m.conversation_id=c.id
+        WHERE m.user_id=? ORDER BY m.sent_at DESC LIMIT ?""",(user["id"],limit)).fetchall()
     conn.close()
-    return {"history": [dict(r) for r in rows]}
+    return {"history":[dict(m) for m in msgs]}
+
+@app.post("/coach/chat")
+async def coach_chat(req: CoachRequest, user=Depends(get_user)):
+    return await call_coach_ray(user, req.message, req.mission or "intake")
+
+@app.get("/coach/session")
+async def get_session(user=Depends(get_user)):
+    conn = get_db()
+    s = conn.execute("SELECT * FROM coach_sessions WHERE user_id=?",(user["id"],)).fetchone()
+    conn.close()
+    if not s: return {"history":[],"mission":"intake"}
+    return {"history":json.loads(s["session_json"]),"mission":s["mission"]}
+
+@app.post("/coach/reset")
+async def reset_session(user=Depends(get_user)):
+    conn = get_db()
+    conn.execute("DELETE FROM coach_sessions WHERE user_id=?",(user["id"],))
+    conn.commit(); conn.close()
+    return {"status":"reset"}
+
+@app.post("/coach/draft-message")
+async def draft_message(request: Request, user=Depends(get_user)):
+    body = await request.json()
+    ctx = body.get("context",{})
+    msg_lang = body.get("message_language","en")
+    lang_note = "Write the SMS in English for a US business." if msg_lang=="en" else f"Write the SMS in {msg_lang}."
+    prompt = f"""Draft a professional SMS for a job seeker. {lang_note}
+Name: {ctx.get('name',user.get('first_name',''))} {user.get('last_name','')}
+Skills: {ctx.get('skills',user.get('skills','relevant experience'))}
+Position: {ctx.get('position',user.get('target_job','employment'))}
+Rules: Max 160 chars. Include first name. Mention key skill. Ask if hiring. End with WorkBridge. Sound human.
+Return ONLY the message text."""
+    if not ANTHROPIC_KEY:
+        return {"message":f"Hi, I'm {user.get('first_name','')}. I have experience in {user.get('target_job','this field')} and am seeking work. Are you hiring? — WorkBridge"}
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            res = await client.post("https://api.anthropic.com/v1/messages",
+                headers={"x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
+                json={"model":"claude-sonnet-4-20250514","max_tokens":200,"messages":[{"role":"user","content":prompt}]})
+            return {"message":res.json()["content"][0]["text"].strip().strip('"')}
+    except:
+        return {"message":f"Hi, I'm {user.get('first_name','')} and I'm looking for {user.get('target_job','work')}. Are you hiring? — WorkBridge"}
+
+@app.get("/coach/docs")
+async def get_docs(user=Depends(get_user)):
+    conn = get_db()
+    docs = conn.execute("SELECT id,doc_type,title,created_at FROM generated_docs WHERE user_id=? ORDER BY created_at DESC",(user["id"],)).fetchall()
+    conn.close()
+    return {"docs":[dict(d) for d in docs]}
+
+@app.get("/coach/docs/{doc_id}")
+async def get_doc(doc_id: int, user=Depends(get_user)):
+    conn = get_db()
+    doc = conn.execute("SELECT * FROM generated_docs WHERE id=? AND user_id=?",(doc_id,user["id"])).fetchone()
+    conn.close()
+    if not doc: raise HTTPException(404,"Not found")
+    return dict(doc)
 
 @app.post("/appointments/create")
-async def create_appointment(req: AppointmentRequest, request: Request):
-    user = get_user(request)
+async def create_appt(req: AppointmentRequest, background_tasks: BackgroundTasks, user=Depends(get_user)):
     conn = get_db()
-    c = conn.execute("INSERT INTO appointments (user_id,business_name,business_phone,appt_datetime,notes) VALUES (?,?,?,?,?)",
+    appt_dt = datetime.fromisoformat(req.appt_datetime)
+    cur = conn.execute("INSERT INTO appointments (user_id,business_name,business_phone,appt_datetime,notes) VALUES (?,?,?,?,?)",
         (user["id"],req.business_name,req.business_phone,req.appt_datetime,req.notes))
-    conn.commit()
-    conn.close()
-    return {"appt_id":c.lastrowid,"status":"scheduled"}
+    appt_id = cur.lastrowid; conn.commit(); conn.close()
+    background_tasks.add_task(schedule_reminders,appt_id,user,req,appt_dt)
+    return {"appt_id":appt_id,"status":"scheduled","message":f"Interview with {req.business_name} scheduled!"}
+
+async def schedule_reminders(appt_id,user,req,appt_dt):
+    now = datetime.utcnow()
+    for hours,msg in [(24,f"WorkBridge: Interview tomorrow at {appt_dt.strftime('%I:%M %p')} with {req.business_name}. You've got this! 💪"),
+                      (2,f"WorkBridge: Interview in 2 hours at {req.business_name}. Be on time!")]:
+        remind_at = appt_dt-timedelta(hours=hours)
+        if remind_at>now:
+            await asyncio.sleep((remind_at-now).total_seconds())
+            if user.get("phone"): await send_sms(user["phone"],msg)
 
 @app.get("/appointments")
-async def get_appointments(request: Request):
-    user = get_user(request)
+async def get_appts(user=Depends(get_user)):
     conn = get_db()
-    rows = conn.execute("SELECT * FROM appointments WHERE user_id=? ORDER BY appt_datetime",(user["id"],)).fetchall()
+    appts = conn.execute("SELECT * FROM appointments WHERE user_id=? ORDER BY appt_datetime DESC",(user["id"],)).fetchall()
     conn.close()
-    return {"appointments":[dict(r) for r in rows]}
+    return {"appointments":[dict(a) for a in appts]}
+
+PACKAGES = {
+    "starter":{"credits":10,"price":100,"name":"Starter"},
+    "popular":{"credits":50,"price":450,"name":"Popular"},
+    "best_value":{"credits":100,"price":800,"name":"Best Value"},
+    "pro":{"credits":250,"price":1800,"name":"Pro"},
+}
 
 @app.post("/credits/purchase")
-async def purchase_credits(req: CreditPurchaseRequest, request: Request):
-    user = get_user(request)
-    if req.credits not in CREDIT_PACKAGES:
-        raise HTTPException(400, f"Choose from: {list(CREDIT_PACKAGES.keys())}")
-    price = CREDIT_PACKAGES[req.credits]
-    if not STRIPE_SECRET_KEY:
-        return {"message":"Stripe not configured","credits":req.credits,"price_cents":price}
-    import stripe
-    stripe.api_key = STRIPE_SECRET_KEY
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{"price_data":{"currency":"usd","product_data":{"name":f"WorkBridge {req.credits} SMS Credits"},"unit_amount":price},"quantity":1}],
-        mode="payment",
-        success_url="https://workbridgesms.com/dashboard",
-        cancel_url="https://workbridgesms.com/dashboard",
-        metadata={"user_id":user["id"],"credits":req.credits}
-    )
-    conn = get_db()
-    conn.execute("INSERT INTO credit_transactions (user_id,credits,amount_cents,stripe_session) VALUES (?,?,?,?)",
-        (user["id"],req.credits,price,session.id))
-    conn.commit()
-    conn.close()
-    return {"checkout_url":session.url}
+async def purchase(request: Request, user=Depends(get_user)):
+    body = await request.json()
+    pkg = PACKAGES.get(body.get("package","popular"),PACKAGES["popular"])
+    if not STRIPE_SECRET: return {"url":"https://stripe.com/mock","mock":True}
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{"price_data":{"currency":"usd","product_data":{"name":f"WorkBridge {pkg['name']} — {pkg['credits']} Credits"},"unit_amount":pkg["price"]},"quantity":1}],
+            mode="payment",
+            success_url="https://workbridgesms.com/dashboard?credits=added",
+            cancel_url="https://workbridgesms.com/dashboard",
+            metadata={"user_id":str(user["id"]),"credits":str(pkg["credits"])})
+        return {"url":session.url}
+    except Exception as e: raise HTTPException(500,str(e))
 
 @app.post("/credits/webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
-    try:
-        event = json.loads(payload)
-        if event.get("type") == "checkout.session.completed":
-            s = event["data"]["object"]
-            meta = s.get("metadata",{})
-            uid = int(meta.get("user_id",0))
-            credits_to_add = int(meta.get("credits",0))
-            if uid and credits_to_add:
-                conn = get_db()
-                conn.execute("UPDATE users SET credits=credits+? WHERE id=?", (credits_to_add, uid))
-                conn.execute("UPDATE credit_transactions SET status='completed' WHERE stripe_session=?", (s["id"],))
-                conn.commit()
-                conn.close()
-                print(f"Added {credits_to_add} credits to user {uid}")
-        return {"status":"ok"}
-    except Exception as e:
-        print(f"Webhook error: {e}")
-        return {"status":"ok"}
-
-@app.post("/admin/add-credits")
-async def admin_add_credits(request: Request):
-    data = await request.json()
-    email = data.get("email")
-    amount = int(data.get("amount", 0))
-    secret = data.get("secret")
-    if secret != "warship2026":
-        raise HTTPException(403, "Forbidden")
-    conn = get_db()
-    conn.execute("UPDATE users SET credits=credits+? WHERE email=?", (amount, email))
-    conn.commit()
-    row = conn.execute("SELECT credits FROM users WHERE email=?", (email,)).fetchone()
-    conn.close()
-    return {"credits": row["credits"] if row else 0, "added": amount}
-
-
-class MissionsRequest(BaseModel):
-    missions: List[str]
-
-@app.post("/user/missions")
-async def save_missions(req: MissionsRequest, request: Request):
-    user = get_user(request)
-    conn = get_db()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_missions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER UNIQUE,
-            missions TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        )""")
-    conn.execute("""
-        INSERT INTO user_missions (user_id, missions)
-        VALUES (?,?)
-        ON CONFLICT(user_id) DO UPDATE SET missions=excluded.missions
-    """, (user["id"], json.dumps(req.missions)))
-    # Create lead profiles for each selected mission
-    for mission in req.missions:
-        conn.execute("""
-            INSERT OR IGNORE INTO user_profiles (user_id, mission, answers)
-            VALUES (?,?,?)
-        """, (user["id"], mission, json.dumps({"source": "onboarding", "missions_selected": req.missions})))
-    conn.commit()
-    conn.close()
-    return {"status": "saved", "missions": req.missions}
-
-@app.get("/user/missions")
-async def get_missions(request: Request):
-    user = get_user(request)
-    conn = get_db()
-    conn.execute("""CREATE TABLE IF NOT EXISTS user_missions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER UNIQUE, missions TEXT,
-        created_at TEXT DEFAULT (datetime('now')))""")
-    row = conn.execute("SELECT missions FROM user_missions WHERE user_id=?", (user["id"],)).fetchone()
-    conn.close()
-    return {"missions": json.loads(row["missions"]) if row else []}
+    sig = request.headers.get("stripe-signature","")
+    if STRIPE_WEBHOOK:
+        try: event = stripe.Webhook.construct_event(payload,sig,STRIPE_WEBHOOK)
+        except: raise HTTPException(400,"Invalid signature")
+    else: event = json.loads(payload)
+    if event["type"]=="checkout.session.completed":
+        meta = event["data"]["object"].get("metadata",{})
+        uid = int(meta.get("user_id",0)); cred = int(meta.get("credits",0))
+        if uid and cred:
+            conn = get_db()
+            conn.execute("UPDATE users SET credits=credits+? WHERE id=?",(cred,uid))
+            conn.commit()
+            u = conn.execute("SELECT token,phone FROM users WHERE id=?",(uid,)).fetchone()
+            conn.close()
+            if u:
+                await manager.send(u["token"],{"type":"credits_added","credits":cred})
+                if u["phone"]: await send_sms(u["phone"],f"WorkBridge: {cred} credits added!")
+    return {"status":"ok"}
 
 @app.get("/credits/balance")
-async def get_balance(request: Request):
-    user = get_user(request)
+async def balance(user=Depends(get_user)):
     conn = get_db()
-    row = conn.execute("SELECT credits,phone,email,name,language FROM users WHERE id=?",(user["id"],)).fetchone()
+    u = conn.execute("SELECT credits FROM users WHERE id=?",(user["id"],)).fetchone()
     conn.close()
-    return {
-        "credits": row["credits"],
-        "cost_per_text": 0.10,
-        "phone": row["phone"] or "",
-        "email": row["email"] or "",
-        "name": row["name"] or "",
-        "language": row["language"] or "en"
-    }
+    return {"credits":u["credits"] if u else 0,"packages":PACKAGES}
 
-@app.post("/user/language")
-async def set_language(request: Request):
-    user = get_user(request)
-    body = await request.json()
-    lang = body.get("language", "en")
-    if lang not in ("en", "es"):
-        lang = "en"
+@app.websocket("/ws/{token}")
+async def ws_endpoint(websocket: WebSocket, token: str):
     conn = get_db()
-    conn.execute("UPDATE users SET language=? WHERE id=?", (lang, user["id"]))
-    conn.commit()
+    u = conn.execute("SELECT id FROM users WHERE token=?",(token,)).fetchone()
     conn.close()
-    return {"language": lang}
-
-@app.post("/coach/chat")
-async def coach_chat(req: CoachRequest):
-    if not ANTHROPIC_API_KEY:
-        return {"reply": "Coach Ray is coming soon! Visit workbridgesms.com to get started."}
+    if not u: await websocket.close(code=4001); return
+    await manager.connect(token,websocket)
     try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"Content-Type":"application/json","x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},
-                json={"model":"claude-haiku-4-5-20251001","max_tokens":400,
-                      "system":f"You are Coach Ray, WorkBridge's AI career coach. Keep responses SHORT (2-3 sentences max). Help with job searching, GED prep, interview tips, and career advancement. Be warm, encouraging, and direct. Respond in {'Spanish' if req.language=='es' else 'English'}.",
-                      "messages":req.messages},
-                timeout=30
-            )
-            data = res.json()
-            if data.get("content"):
-                reply = data["content"][0].get("text", "I'm here to help! Ask me anything about jobs or your GED.")
-            elif data.get("error"):
-                error_msg = data["error"].get("message", "Unknown error")
-                reply = f"DEBUG ERROR: {error_msg}"
-            else:
-                reply = f"DEBUG: Unexpected response: {str(data)[:200]}"
-            return {"reply": reply}
-    except Exception as e:
-        return {"reply": f"DEBUG EXCEPTION: {str(e)}"}
+        while True:
+            data = await websocket.receive_text()
+            if data=="ping": await websocket.send_json({"type":"pong"})
+    except WebSocketDisconnect: manager.disconnect(token)
 
-class ForgotPasswordRequest(BaseModel):
-    email: str
+@app.get("/health")
+async def health():
+    return {"status":"ok","version":"3.0","services":{
+        "twilio":bool(TWILIO_SID),"anthropic":bool(ANTHROPIC_KEY),
+        "stripe":bool(STRIPE_SECRET),"google":bool(GOOGLE_KEY)}}
 
-class ResetPasswordRequest(BaseModel):
-    token: str
-    new_password: str
-
-@app.post("/auth/forgot-password")
-async def forgot_password(req: ForgotPasswordRequest):
-    conn = get_db()
-    user = conn.execute("SELECT id FROM users WHERE email=?", (req.email,)).fetchone()
-    if user:
-        # Generate reset token
-        reset_token = secrets.token_hex(16)
-        conn.execute("UPDATE users SET api_token=? WHERE email=?", (reset_token, req.email))
-        conn.commit()
-        # In production send email — for now return token directly
-        conn.close()
-        return {"message": f"Reset token: {reset_token} — use POST /auth/reset-password", "token": reset_token}
-    conn.close()
-    return {"message": "If that email exists, a reset link has been sent."}
-
-@app.post("/auth/reset-password")
-async def reset_password(req: ResetPasswordRequest):
-    conn = get_db()
-    user = conn.execute("SELECT id FROM users WHERE api_token=?", (req.token,)).fetchone()
-    if not user:
-        conn.close()
-        raise HTTPException(400, "Invalid or expired reset token")
-    new_token = secrets.token_hex(32)
-    conn.execute("UPDATE users SET password_hash=?, api_token=? WHERE id=?",
-        (hash_password(req.new_password), new_token, user["id"]))
-    conn.commit()
-    conn.close()
-    return {"message": "Password reset successfully", "token": new_token}
-
-class ProfileSaveRequest(BaseModel):
-    mission: str
-    answers: dict
-    timestamp: Optional[str] = None
-
-@app.post("/coach/save-profile")
-async def save_profile(req: ProfileSaveRequest, request: Request):
-    user = get_user(request)
-    conn = get_db()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_profiles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER, mission TEXT, answers TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        )""")
-    conn.execute("INSERT INTO user_profiles (user_id, mission, answers) VALUES (?,?,?)",
-        (user["id"], req.mission, json.dumps(req.answers)))
-    conn.commit()
-    conn.close()
-    return {"status": "saved", "mission": req.mission}
-
-@app.get("/coach/profiles")
-async def get_profiles(request: Request):
-    user = get_user(request)
-    conn = get_db()
-    conn.execute("""CREATE TABLE IF NOT EXISTS user_profiles (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, mission TEXT, answers TEXT,
-        created_at TEXT DEFAULT (datetime('now')))""")
-    rows = conn.execute(
-        "SELECT * FROM user_profiles WHERE user_id=? ORDER BY created_at DESC",
-        (user["id"],)).fetchall()
-    conn.close()
-    return {"profiles": [{"mission":r["mission"],"answers":json.loads(r["answers"]),"created_at":r["created_at"]} for r in rows]}
+@app.get("/")
+async def root():
+    return {"message":"WorkBridge API v3.0 — Coach Ray + Live Search + Two-Way SMS"}
