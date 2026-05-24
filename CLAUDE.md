@@ -1,47 +1,55 @@
 # CLAUDE.md — WorkBridge Live Build Reference
-# Updated: May 23, 2026 — Late Session
+# Updated: May 24, 2026
+
+## 🚨 DO FIRST NEXT SESSION — PostgreSQL Migration
+SQLite wipes all users on every Render redeploy.
+1. render.com → New → PostgreSQL → Free → Oregon
+2. Copy Internal Database URL
+3. Add DATABASE_URL to workbridge-api environment
+4. Paste URL to Claude — migration patch ready to run
 
 ## DOMAIN: workbridgesms.com
 ## BACKEND: https://workbridge-api.onrender.com (v3.0)
 ## GITHUB: https://github.com/BDeary7/workbridge
 ## LOCAL: /Users/brandondeary/Desktop/workbridge/workbridge/
 
-## COLOR SCHEMA (consistent across ALL pages)
-amber=#F59E0B green=#10B981 dark=#080C12 white=#F0F4F8
-CSS vars in globals.css: --wb-amber --wb-green --wb-dark --wb-white
-
-## STATUS
-Backend v3.0 LIVE | workbridgesms.com LIVE
-Twilio: verification pending | Ytel: call Monday (800) 926-7007
-Resend: DNS propagating | Forgot password: ready when DNS verifies
+## COLORS: amber=#F59E0B green=#10B981 dark=#080C12 white=#F0F4F8
 
 ## ENDPOINTS
 /auth/register|login|me|forgot-password|reset-password|profile/update
 /sms/blast|inbox|thread/{id}|reply|history|reply/webhook
-/coach/chat|generate-message|agent-search|save-profile|suggest-reply|draft-message|session|reset|docs
+/coach/chat|generate-message|agent-search|save-profile|suggest-reply
+/coach/draft-message|session|reset|docs|veteran-translate
 /messages/reply|/user/missions|/appointments|/credits/purchase|webhook|balance
 /dev/add-credits|/ws/{token}|/health
 
-## RENDER ENV VARS (all set)
-TWILIO_ACCOUNT_SID|TWILIO_AUTH_TOKEN|TWILIO_FROM_NUMBER
-ANTHROPIC_API_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET
-GOOGLE_PLACES_KEY|SECRET_KEY|RESEND_API_KEY|RESEND_FROM|PORT
+## VETBRIDGE BUILT
+MOS translation, DD-214 questions, employment sub-track, Voc Rehab detection
+30-code local map + Claude AI fallback | /coach/veteran-translate
+
+## TWILIO: +18774173538 toll-free — verification pending
+## YTEL: Call Monday 9am (800) 926-7007 Lake Forest CA
+## RESEND: DNS propagating — change RESEND_FROM when verified
+
+## OC PROCUREMENT
+Registered: procurement.opengov.com/portal/ocgov
+NIGP:20879 NAICS:541511,561311,624310 UNSPSC:80111500,81111700
+Zitlalic Domond: Zitlalic.Domond@occr.ocgov.com — reply to her email
+Matthew Perez: matthew.perez@ocworkforcesolutions.com
+
+## RENDER ENV VARS NEEDED
+DATABASE_URL — PostgreSQL Internal URL (not added yet)
 
 ## MONDAY
-1. Ytel (800) 926-7007 — swap SMS
-2. Resend DNS verify — update RESEND_FROM in Render
-3. Hugo test full flow
-4. VetBridge build
-
-## DEPLOY
-cd ~/Desktop/workbridge/workbridge
-git add -A && git commit -m "msg" && git push origin main
-curl https://workbridge-api.onrender.com/health
+1. PostgreSQL migration
+2. Ytel call
+3. Resend DNS check
+4. Hugo full test
+5. Reply Zitlalic Domond
 
 ## LESSONS
-- iOS Safari: -webkit-text-fill-color for inputs
-- useSearchParams needs Suspense in Next.js
-- Python 3.14: no backslash in f-strings
-- Never vercel.json with Next.js app router
-- Twilio webhook needs GET+POST both 200
-- onboarding@resend.dev only sends to account owner until domain verified
+SQLite resets on Render — PostgreSQL critical
+iOS Safari: -webkit-text-fill-color for inputs
+useSearchParams needs Suspense in Next.js
+Nested backticks break TypeScript build
+Never vercel.json with Next.js app router
