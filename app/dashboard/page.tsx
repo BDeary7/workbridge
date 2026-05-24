@@ -437,6 +437,28 @@ export default function Dashboard(){
     
     // Fetch AI-generated message
     setTimeout(async()=>{
+      // VetBridge — auto-translate MOS when veteran selects employment
+      const currentMission2 = mission
+      if (currentMission2 === 'veteran' && (na['primary_need']?.includes('Employment') || na['primary_need']?.includes('All'))) {
+        try {
+          const t = tok()
+          const translateRes = await fetch(`${API}/coach/veteran-translate`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', Authorization: `Bearer ${t}`},
+            body: JSON.stringify({mos_code: na['mos_code']||'', branch: na['branch']||'', narrative: na['narrative']||''})
+          })
+          const translateData = await translateRes.json()
+          if (translateData.civilian_translation) {
+            setMsgs(m=>[...m,{r:'a',c:`🎖️ MOS Translation for ${na['mos_code']?.toUpperCase()||'your service'}:
+
+${translateData.civilian_translation}
+
+📌 Key Resources:
+${translateData.resources?.slice(0,3).map((r:any)=>` • ${r.name} — ${r.desc}`).join('
+')}`}])
+          }
+        } catch {}
+      }
       try{
         const t = tok()
         const msgRes = await fetch(`${API}/coach/generate-message`,{
