@@ -49,12 +49,38 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
       {q:'Are you looking to buy a home in the next 6-12 months?',key:'home_buying_intent',options:['Yes — actively looking','Yes — within 6 months','Yes — within 12 months','No — not right now','Maybe — need more info']},
     ] : []
 
+    // VetBridge Employment Track — fires when veteran selects Employment
+    const primaryNeed = answers['primary_need'] || ''
+    const employmentQs = primaryNeed.includes('Employment') || primaryNeed.includes('All of the above') ? [
+      {q:'What was your Military Occupational Specialty (MOS), rate, or job code? (e.g. 11B, IT, 0311, 3P0X1)',key:'mos_code',type:'text'},
+      {q:'What type of civilian work are you targeting?',key:'civilian_target',options:[
+        'Security / Law Enforcement','Logistics / Supply Chain','IT / Cybersecurity',
+        'Healthcare / Medic','Leadership / Management','Skilled Trades','Transportation / Driving',
+        'Government / Defense Contractor','Education / Training','Not sure — help me translate my MOS'
+      ]},
+      {q:'How long have you been out of the military?',key:'time_since_service',options:[
+        'Still active duty','Less than 6 months','6-12 months','1-2 years','2-5 years','Over 5 years'
+      ]},
+      {q:'Do you have a current resume?',key:'has_resume',options:[
+        'Yes — updated','Yes — needs updating','No — need help building one','No — do not know how'
+      ]},
+      {q:'Are you enrolled in VA Vocational Rehabilitation (Voc Rehab / Chapter 31)?',key:'voc_rehab',options:[
+        'Yes — currently enrolled','No — but I qualify','No — not sure if I qualify','Already completed'
+      ]},
+      {q:'What is your target pay range?',key:'target_pay',options:[
+        '$15-20/hr','$20-28/hr','$28-35/hr','$35-45/hr','$45+/hr','Salary — open to discuss'
+      ]},
+      {q:'Are you open to veteran-preference federal jobs?',key:'federal_interest',options:[
+        'Yes — actively interested','Yes — open to it','No — prefer private sector','Not sure'
+      ]},
+    ] : []
+
     const finalQs = [
       {q:'In your own words — tell me more about your situation. The more detail you share, the better I can match you with the right specialist and write your outreach message.',key:'narrative',type:'textarea'},
       ...(phoneQ ? [phoneQ] : []),
       ...(emailQ ? [emailQ] : []),
     ]
-    return [...base, ...refiQs, ...finalQs]
+    return [...base, ...refiQs, ...employmentQs, ...finalQs]
   }
 
   if (mission === 'job') {
@@ -232,6 +258,20 @@ const getMissionHelp = (mission: string, answers: Record<string,string>): string
     return `Let me write your outreach message right now. Based on your profile, here is a strong opening: "Hi, my name is ${uname}. I am experienced in ${jobType} and available to start immediately. Do you have any openings?" Want me to personalize this further?`
   }
   if (mission === 'veteran') {
+    const mos = answers['mos_code'] || ''
+    const civilianTarget = answers['civilian_target'] || ''
+    const hasResume = answers['has_resume'] || ''
+    const vocRehab = answers['voc_rehab'] || ''
+    const primaryNeed = answers['primary_need'] || ''
+    
+    if (primaryNeed.includes('Employment') || primaryNeed.includes('All of the above')) {
+      let msg = `VetBridge Employment Plan for ${uname}:\n\n`
+      if (mos) msg += `🎖️ MOS ${mos} translates to civilian roles in ${civilianTarget || 'multiple fields'}. I am searching veteran-friendly employers near ${zip} now.\n\n`
+      if (hasResume?.includes('No')) msg += `📄 No resume — I will help you build a military-to-civilian resume using your DD-214 experience. Tell me your top 3 duty assignments.\n\n`
+      if (vocRehab?.includes('qualify')) msg += `💰 You may qualify for VA Voc Rehab (Chapter 31) — up to $2,800/month while you train or job search. I can connect you with a VA counselor.\n\n`
+      msg += `🏛️ Federal jobs with veteran preference are available in your area — 10-point preference if you have a disability rating.\n\nWhich would you like to tackle first?`
+      return msg
+    }
     return `Based on your answers, here are your top 3 priorities: 1) File your VA disability claim if you have not — even 10% rating = $165/month tax-free. 2) Check your VA home loan eligibility — zero down payment. 3) Review your education benefits under the GI Bill. Which would you like to tackle first?`
   }
   if (mission === 'housing') {

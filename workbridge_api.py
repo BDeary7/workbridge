@@ -1216,3 +1216,83 @@ async def reset_password(request: Request):
     conn.close()
 
     return {"status": "ok", "message": "Password updated successfully"}
+
+# ── VETBRIDGE — MOS TRANSLATION ────────────────────────────────────────────────
+
+MOS_MAP = {
+    "11b":"Infantry — Security, Law Enforcement, Border Patrol, Corrections",
+    "11c":"Indirect Fire — Artillery Tech, Logistics, Operations",
+    "12b":"Combat Engineer — Construction, Project Management, Heavy Equipment",
+    "12k":"Plumber — Plumbing, HVAC, Facilities Management",
+    "13f":"Fire Support — Logistics Coordinator, Operations Analyst",
+    "15w":"UAV Operator — Drone Pilot, GIS Analyst, Aviation Tech",
+    "18x":"Special Forces — Security Consultant, Federal Agent, Defense Contractor",
+    "25b":"IT Specialist — Network Admin, Cybersecurity, Help Desk",
+    "25u":"Signal Support — Telecom Tech, Network Engineer, IT Support",
+    "35l":"Counterintelligence — Federal Agent, Investigator, Security Analyst",
+    "42a":"HR Specialist — Human Resources, Payroll, Recruiting",
+    "56m":"Chaplain Assistant — Counselor, Social Work, Nonprofit",
+    "68w":"Combat Medic — EMT, Paramedic, Nursing, Healthcare",
+    "88m":"Motor Transport — CDL Driver, Logistics, Fleet Manager",
+    "91b":"Wheeled Vehicle Mechanic — Auto Mechanic, Fleet Maintenance",
+    "92a":"Automated Logistical — Supply Chain, Warehouse, Inventory",
+    "it": "Navy IT — Network Admin, Cybersecurity, Systems Admin",
+    "ht": "Navy Hospital Corpsman — EMT, Nursing, Medical Assistant",
+    "0311":"Marine Infantry — Security, Law Enforcement, Federal Agent",
+    "0621":"Marine Signal — Telecom, Network Tech, IT Support",
+    "3p0x1":"AF Security Forces — Law Enforcement, Security, Federal Agent",
+    "4n0x1":"AF Medical — Nursing, Healthcare, EMT",
+    "6c0x1":"AF Contracting — Procurement, Contract Management, Government",
+}
+
+@app.post("/coach/veteran-translate")
+async def veteran_translate(request: Request, user=Depends(get_user)):
+    body = await request.json()
+    mos = body.get("mos_code", "").lower().strip().replace(" ", "")
+    branch = body.get("branch", "")
+    narrative = body.get("narrative", "")
+
+    # Check local map first
+    civilian_translation = MOS_MAP.get(mos, "")
+
+    if not civilian_translation and ANTHROPIC_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                prompt = f"""Translate this military experience to civilian job opportunities.
+
+MOS/Rate/AFSC: {mos}
+Branch: {branch}
+Additional context: {narrative[:200]}
+
+Provide:
+1. Top 3 civilian job titles that match this military experience
+2. Industries that actively hire veterans with this background
+3. Any certifications from military service that transfer directly
+4. Average civilian salary range for these roles
+
+Keep it practical and actionable. Under 200 words."""
+                res = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                    json={"model": "claude-sonnet-4-20250514", "max_tokens": 400,
+                          "messages": [{"role": "user", "content": prompt}]}
+                )
+                civilian_translation = res.json()["content"][0]["text"]
+        except:
+            civilian_translation = f"Your {mos} experience translates to roles in security, operations, and technical fields. Search 'veteran jobs {mos}' on USAJOBS.gov for federal positions."
+
+    elif not civilian_translation:
+        civilian_translation = f"Your {mos} military experience is valuable. Visit USAJOBS.gov for veteran-preference federal jobs, or O*NET OnLine (onetonline.org) to search your MOS code for civilian equivalents."
+
+    return {
+        "mos": mos.upper(),
+        "branch": branch,
+        "civilian_translation": civilian_translation,
+        "resources": [
+            {"name": "USAJOBS.gov", "url": "https://usajobs.gov", "desc": "Federal jobs with veteran preference"},
+            {"name": "O*NET Military Crosswalk", "url": "https://onetonline.org/crosswalk/MOC", "desc": "Translate your MOS to civilian jobs"},
+            {"name": "VA Voc Rehab (Ch. 31)", "url": "https://va.gov/careers-employment/vocational-rehabilitation", "desc": "Up to $2,800/mo while job searching"},
+            {"name": "Hire Heroes USA", "url": "https://hireheroesusa.org", "desc": "Free veteran job placement"},
+            {"name": "American Corporate Partners", "url": "https://acp-usa.org", "desc": "Free mentoring from executives"},
+        ]
+    }
