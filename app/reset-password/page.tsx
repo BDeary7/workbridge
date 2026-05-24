@@ -1,19 +1,19 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { Suspense } from 'react'
+import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 const API = 'https://workbridge-api.onrender.com'
 
-export default function ResetPassword() {
+function ResetForm() {
   const router = useRouter()
   const params = useSearchParams()
   const token  = params.get('token') || ''
-
-  const [password, setPassword]   = useState('')
-  const [confirm, setConfirm]     = useState('')
-  const [loading, setLoading]     = useState(false)
-  const [error, setError]         = useState('')
-  const [success, setSuccess]     = useState(false)
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm]   = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState('')
+  const [success, setSuccess]   = useState(false)
 
   const handleReset = async () => {
     setError('')
@@ -31,51 +31,43 @@ export default function ResetPassword() {
       if (!res.ok) throw new Error(data.detail || 'Reset failed')
       setSuccess(true)
       setTimeout(() => router.push('/login'), 2000)
-    } catch(e: any) {
-      setError(e.message)
-    }
+    } catch(e: any) { setError(e.message) }
     setLoading(false)
   }
 
-  const S = {
-    page: { minHeight:'100vh', background:'#060B14', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'DM Sans', sans-serif", padding:20 } as React.CSSProperties,
-    card: { width:'100%', maxWidth:400, background:'#1A2235', border:'1px solid #1E3A5F', borderRadius:16, padding:32 } as React.CSSProperties,
-    title: { fontFamily:'Syne, sans-serif', fontSize:24, fontWeight:800, color:'#FFFFFF', marginBottom:8 } as React.CSSProperties,
-    sub: { fontSize:13, color:'#64748B', marginBottom:24 } as React.CSSProperties,
-    inp: { width:'100%', padding:'12px 14px', borderRadius:10, background:'#060B14', border:'1px solid #1E3A5F', color:'#FFFFFF', fontSize:14, fontFamily:"DM Sans", outline:'none', marginBottom:12, boxSizing:'border-box' } as React.CSSProperties,
-    btn: { width:'100%', padding:'13px 0', border:'none', cursor:'pointer', borderRadius:10, background:'#00C6A2', color:'#0A0F1A', fontFamily:"DM Sans", fontWeight:700, fontSize:15 } as React.CSSProperties,
-    err: { color:'#EF4444', fontSize:12, marginBottom:12 } as React.CSSProperties,
-    ok: { color:'#00C6A2', fontSize:14, fontWeight:700, textAlign:'center' as const } as React.CSSProperties,
-  }
+  const inp: React.CSSProperties = { width:'100%', padding:'12px 14px', borderRadius:10, background:'#060B14', border:'1px solid #1E3A5F', color:'#FFFFFF', fontSize:14, fontFamily:'DM Sans', outline:'none', marginBottom:12, boxSizing:'border-box' }
 
   return (
-    <div style={S.page}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700&family=Syne:wght@800&display=swap" rel="stylesheet"/>
-      <div style={S.card}>
-        <div style={{textAlign:'center', marginBottom:24}}>
+    <div style={{minHeight:'100vh',background:'#060B14',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'DM Sans',sans-serif",padding:20}}>
+      <div style={{width:'100%',maxWidth:400,background:'#1A2235',border:'1px solid #1E3A5F',borderRadius:16,padding:32}}>
+        <div style={{textAlign:'center',marginBottom:24}}>
           <div style={{fontSize:36}}>🌉</div>
-          <div style={{fontFamily:'Syne, sans-serif', fontSize:22, fontWeight:800, color:'#FFFFFF'}}>WorkBridge</div>
+          <div style={{fontFamily:'Syne,sans-serif',fontSize:22,fontWeight:800,color:'#FFFFFF'}}>WorkBridge</div>
         </div>
-        <div style={S.title}>Set New Password</div>
-        <div style={S.sub}>Enter your new password below</div>
+        <div style={{fontSize:22,fontWeight:800,color:'#FFFFFF',marginBottom:8}}>Set New Password</div>
+        <div style={{fontSize:13,color:'#64748B',marginBottom:24}}>Enter your new password below</div>
         {success ? (
-          <div style={S.ok}>✅ Password updated! Redirecting to login...</div>
+          <div style={{color:'#00C6A2',fontSize:14,fontWeight:700,textAlign:'center'}}>✅ Password updated! Redirecting...</div>
         ) : (
           <>
-            {error && <div style={S.err}>{error}</div>}
-            <input type="password" placeholder="New password (min 8 chars)"
-              value={password} onChange={e => setPassword(e.target.value)}
-              style={S.inp}/>
-            <input type="password" placeholder="Confirm new password"
-              value={confirm} onChange={e => setConfirm(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleReset()}
-              style={S.inp}/>
-            <button onClick={handleReset} disabled={loading} style={{...S.btn, opacity: loading ? 0.6 : 1}}>
+            {error && <div style={{color:'#EF4444',fontSize:12,marginBottom:12}}>{error}</div>}
+            <input type="password" placeholder="New password (min 8 chars)" value={password} onChange={e=>setPassword(e.target.value)} style={inp}/>
+            <input type="password" placeholder="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleReset()} style={inp}/>
+            <button onClick={handleReset} disabled={loading}
+              style={{width:'100%',padding:'13px 0',border:'none',cursor:'pointer',borderRadius:10,background:'#00C6A2',color:'#0A0F1A',fontFamily:'DM Sans',fontWeight:700,fontSize:15,opacity:loading?0.6:1}}>
               {loading ? 'Updating...' : 'Update Password →'}
             </button>
           </>
         )}
       </div>
     </div>
+  )
+}
+
+export default function ResetPassword() {
+  return (
+    <Suspense fallback={<div style={{minHeight:'100vh',background:'#060B14',display:'flex',alignItems:'center',justifyContent:'center',color:'#00C6A2',fontFamily:'DM Sans'}}>Loading...</div>}>
+      <ResetForm />
+    </Suspense>
   )
 }
