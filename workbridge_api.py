@@ -677,7 +677,7 @@ async def ws_endpoint(websocket: WebSocket, token: str):
 async def health():
     return {"status":"ok","version":"3.0","services":{
         "twilio":bool(TWILIO_SID),"anthropic":bool(ANTHROPIC_KEY),
-        "stripe":bool(STRIPE_SECRET),"google":bool(GOOGLE_KEY)}}
+        "stripe":bool(STRIPE_SECRET),"google":bool(GOOGLE_KEY),"resend":bool(RESEND_API_KEY)}}
 
 @app.get("/")
 async def root():
