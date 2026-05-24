@@ -185,7 +185,7 @@ export default function Home() {
                   placeholder={isEs?'Tu correo electrónico':'Your email address'}
                   style={{flex:1,padding:'14px 18px',borderRadius:100,background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.15)',color:white,fontSize:15,outline:'none'}}/>
                 <button className="btn" onClick={handleSignup} disabled={submitting||!email.trim()||!name.trim()}
-                  style={{padding:'14px 24px',borderRadius:100,border:'none',background:email.trim()&&name.trim()?`linear-gradient(135deg,${amber},#D97706)`:'rgba(255,255,255,0.1)',color:dark,fontWeight:900,fontSize:14,whiteSpace:'nowrap',opacity:submitting?0.7:1,cursor:'pointer'}}>
+                  style={{padding:'14px 24px',borderRadius:100,border:'none',background:email.trim()&&name.trim()?`linear-gradient(135deg,${amber},#D97706)`:'rgba(255,255,255,0.15)',color:email.trim()&&name.trim()?dark:white,fontWeight:900,fontSize:14,whiteSpace:'nowrap',opacity:submitting?0.7:1,cursor:'pointer'}}>
                   {submitting?'...':(isEs?'Empezar':'Get Access')}
                 </button>
               </div>
