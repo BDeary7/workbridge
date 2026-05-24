@@ -1102,7 +1102,7 @@ async def dev_add_credits(request: Request, user=Depends(get_user)):
 import secrets
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-RESEND_FROM    = os.getenv("RESEND_FROM", "WorkBridge <noreply@workbridgesms.com>")
+RESEND_FROM    = os.getenv("RESEND_FROM", "WorkBridge <onboarding@resend.dev>")
 
 @app.post("/auth/forgot-password")
 async def forgot_password(request: Request):
