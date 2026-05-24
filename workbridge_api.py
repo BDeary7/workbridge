@@ -1086,3 +1086,14 @@ async def sms_history_compat(limit: int = 50, user=Depends(get_user)):
                 "conversation_id": cid})
     conn.close()
     return {"history": history}
+
+@app.post("/dev/add-credits")
+async def dev_add_credits(request: Request, user=Depends(get_user)):
+    """Dev only — add test credits"""
+    body = await request.json()
+    amount = min(int(body.get("amount", 50)), 200)  # cap at 200
+    conn = get_db()
+    conn.execute("UPDATE users SET credits=credits+? WHERE id=?", (amount, user["id"]))
+    new_bal = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()["credits"]
+    conn.commit(); conn.close()
+    return {"credits": new_bal, "added": amount}
