@@ -1097,3 +1097,122 @@ async def dev_add_credits(request: Request, user=Depends(get_user)):
     new_bal = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()["credits"]
     conn.commit(); conn.close()
     return {"credits": new_bal, "added": amount}
+
+# ── FORGOT PASSWORD ────────────────────────────────────────────────────────────
+import secrets
+
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+RESEND_FROM    = os.getenv("RESEND_FROM", "WorkBridge <noreply@workbridgesms.com>")
+
+@app.post("/auth/forgot-password")
+async def forgot_password(request: Request):
+    body  = await request.json()
+    email = body.get("email", "").strip().lower()
+    if not email:
+        raise HTTPException(400, "Email required")
+
+    conn = get_db()
+
+    # Always respond success to prevent email enumeration
+    user = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    if not user:
+        conn.close()
+        return {"status": "ok", "message": "If that email exists you will receive a reset link"}
+
+    # Generate secure token
+    reset_token = secrets.token_urlsafe(32)
+    expires_at  = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+
+    # Store token in profile_json
+    profile = json.loads(user["profile_json"]) if user["profile_json"] else {}
+    profile["reset_token"]   = reset_token
+    profile["reset_expires"] = expires_at
+    conn.execute("UPDATE users SET profile_json=? WHERE id=?", (json.dumps(profile), user["id"]))
+    conn.commit()
+    conn.close()
+
+    # Send email via Resend
+    reset_url = f"https://workbridgesms.com/reset-password?token={reset_token}"
+    first_name = user["first_name"] or "there"
+
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0D1421; color: #E2E8F0; padding: 40px; border-radius: 12px;">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <h1 style="color: #00C6A2; font-size: 28px; margin: 0;">🌉 WorkBridge</h1>
+        <p style="color: #64748B; margin-top: 8px;">AI-Powered Job Placement</p>
+      </div>
+      <h2 style="color: #FFFFFF; font-size: 22px;">Reset Your Password</h2>
+      <p style="color: #B0C4D8; line-height: 1.6;">Hi {first_name},</p>
+      <p style="color: #B0C4D8; line-height: 1.6;">We received a request to reset your WorkBridge password. Click the button below to create a new password. This link expires in 1 hour.</p>
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="{reset_url}" style="background: #00C6A2; color: #0A0F1A; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px; display: inline-block;">
+          Reset My Password →
+        </a>
+      </div>
+      <p style="color: #64748B; font-size: 13px; line-height: 1.6;">If you didn't request this, you can safely ignore this email. Your password won't change.</p>
+      <p style="color: #64748B; font-size: 12px; margin-top: 32px; border-top: 1px solid #1E3A5F; padding-top: 16px;">
+        WorkBridge — workbridgesms.com<br/>
+        Laguna Woods, California
+      </p>
+    </div>
+    """
+
+    if RESEND_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+                    json={
+                        "from": RESEND_FROM,
+                        "to": [email],
+                        "subject": "Reset your WorkBridge password",
+                        "html": html_body
+                    }
+                )
+        except Exception as e:
+            print(f"Resend error: {e}")
+
+    return {"status": "ok", "message": "If that email exists you will receive a reset link"}
+
+
+@app.post("/auth/reset-password")
+async def reset_password(request: Request):
+    body      = await request.json()
+    token     = body.get("token", "")
+    password  = body.get("password", "")
+
+    if not token or not password:
+        raise HTTPException(400, "Token and password required")
+    if len(password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+
+    conn = get_db()
+    users = conn.execute("SELECT * FROM users").fetchall()
+
+    target_user = None
+    for u in users:
+        profile = json.loads(u["profile_json"]) if u["profile_json"] else {}
+        if profile.get("reset_token") == token:
+            expires = profile.get("reset_expires", "")
+            if expires and datetime.fromisoformat(expires) > datetime.utcnow():
+                target_user = u
+                break
+
+    if not target_user:
+        conn.close()
+        raise HTTPException(400, "Invalid or expired reset link")
+
+    # Update password and clear token
+    profile = json.loads(target_user["profile_json"]) if target_user["profile_json"] else {}
+    profile.pop("reset_token", None)
+    profile.pop("reset_expires", None)
+
+    conn.execute(
+        "UPDATE users SET password_hash=?, profile_json=? WHERE id=?",
+        (hash_pw(password), json.dumps(profile), target_user["id"])
+    )
+    conn.commit()
+    conn.close()
+
+    return {"status": "ok", "message": "Password updated successfully"}
