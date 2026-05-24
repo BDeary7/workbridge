@@ -43,3 +43,50 @@ textarea:focus {
   color: #FFFFFF !important;
   -webkit-text-fill-color: #FFFFFF !important;
 }
+
+/* WorkBridge System Color Schema */
+:root {
+  --wb-amber: #F59E0B;
+  --wb-amber-dark: #D97706;
+  --wb-green: #10B981;
+  --wb-green-dark: #059669;
+  --wb-dark: #080C12;
+  --wb-surface: #0D1421;
+  --wb-card: #121C2E;
+  --wb-border: #1A3050;
+  --wb-white: #F0F4F8;
+  --wb-muted: #4A6A8A;
+}
+
+/* Default button style */
+button {
+  font-family: system-ui, sans-serif;
+}
+
+/* Remove default blue autofill background on iOS/Chrome */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #0D1421 inset !important;
+  -webkit-text-fill-color: #F0F4F8 !important;
+  caret-color: #F59E0B;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(245, 158, 11, 0.3);
+  color: #F0F4F8;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #080C12; }
+::-webkit-scrollbar-thumb { background: rgba(245, 158, 11, 0.3); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(245, 158, 11, 0.6); }
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid #F59E0B;
+  outline-offset: 2px;
+}
