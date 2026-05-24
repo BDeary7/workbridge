@@ -618,7 +618,7 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
 
   return(
     <div style={{fontFamily:'system-ui,sans-serif',background:D,color:W,minHeight:'100vh'}}>
-      <style>{`*{box-sizing:border-box;margin:0;padding:0}.b:hover{opacity:.88;cursor:pointer}input,textarea{outline:none}input::placeholder,textarea::placeholder{color:rgba(240,244,248,.3)}.mc:hover{transform:translateY(-2px);transition:all .2s}textarea{resize:vertical;font-family:system-ui}`}</style>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0}.b:hover{opacity:.88;cursor:pointer}input,textarea{outline:none;color:#FFFFFF !important;}input::placeholder,textarea::placeholder{color:rgba(240,244,248,.6) !important;}.mc:hover{transform:translateY(-2px);transition:all .2s}textarea{resize:vertical;font-family:system-ui}`}</style>
 
       <nav style={{padding:'0 24px',background:'rgba(8,12,18,.97)',borderBottom:'1px solid rgba(255,255,255,.08)',position:'sticky',top:0,zIndex:100}}>
         <div style={{maxWidth:1100,margin:'0 auto',display:'flex',justifyContent:'space-between',alignItems:'center',height:64}}>
@@ -815,7 +815,7 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
             <div style={{width:260,flexShrink:0,borderRight:'1px solid rgba(255,255,255,.08)',overflowY:'auto',background:'rgba(255,255,255,.02)'}}>
               <div style={{padding:'16px 14px 10px',fontSize:11,fontWeight:800,color:'rgba(240,244,248,.4)',letterSpacing:'1.5px'}}>CONVERSATIONS</div>
               {hist.length===0
-                ? <div style={{padding:24,textAlign:'center',color:'rgba(240,244,248,.3)',fontSize:13}}>No outreach sent yet.<br/>Start a mission!</div>
+                ? <div style={{padding:24,textAlign:'center',color:'rgba(240,244,248,.8)',fontSize:13}}>No outreach sent yet.<br/>Start a mission!</div>
                 : hist.map((h,i)=>(
                   <div key={i} onClick={()=>setActiveThread(i)}
                     style={{padding:'12px 14px',cursor:'pointer',borderBottom:'1px solid rgba(255,255,255,.05)',
@@ -823,7 +823,7 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
                       borderLeft:activeThread===i?'3px solid #10B981':'3px solid transparent'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
                       <span style={{fontWeight:700,fontSize:13,color:'#F0F4F8'}}>{h.recipient_name?.slice(0,20)}</span>
-                      <span style={{fontSize:10,color:'rgba(240,244,248,.3)'}}>
+                      <span style={{fontSize:10,color:'rgba(240,244,248,.8)'}}>
                         {h.replied_at?'replied':h.status==='sent'?'sent':'pending'}
                       </span>
                     </div>
@@ -837,7 +837,7 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
             {/* RIGHT PANEL — conversation */}
             <div style={{flex:1,display:'flex',flexDirection:'column',background:'#080C12'}}>
               {activeThread===null
-                ? <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(240,244,248,.3)',fontSize:14}}>
+                ? <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(240,244,248,.8)',fontSize:14}}>
                     Select a conversation →
                   </div>
                 : <>
