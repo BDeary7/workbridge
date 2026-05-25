@@ -2,10 +2,36 @@
 # Coach Ray + Live Search + Document Generation + Two-Way SMS
 # Deploy: uvicorn workbridge_api:app --host 0.0.0.0 --port $PORT
 
-import os, sqlite3, hashlib, json, asyncio, httpx, re
+import os, hashlib, json, asyncio, httpx, re
 from datetime import datetime, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
+import psycopg2
+import psycopg2.extras
+
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+def get_db():
+    if DATABASE_URL:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        conn.autocommit = False
+        return conn
+    else:
+        import sqlite3
+        conn = sqlite3.connect("/tmp/workbridge.db")
+        conn.row_factory = sqlite3.Row
+        return conn
+
+def is_pg():
+    return bool(DATABASE_URL)
+
+def placeholder(n=1):
+    if is_pg():
+        return ",".join(["%s"]*n)
+    return ",".join(["?"]*n)
+
+def ph(n=1):
+    return placeholder(n)
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
@@ -47,6 +73,95 @@ def get_db():
 
 def init_db():
     conn = get_db()
+    if is_pg():
+        cur = conn.cursor()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            first_name TEXT NOT NULL DEFAULT '',
+            last_name TEXT NOT NULL DEFAULT '',
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            phone TEXT,
+            zip_code TEXT,
+            state TEXT,
+            language TEXT DEFAULT 'en',
+            credits INTEGER DEFAULT 5,
+            token TEXT UNIQUE,
+            skills TEXT DEFAULT '',
+            target_job TEXT DEFAULT '',
+            availability TEXT DEFAULT '',
+            profile_json TEXT DEFAULT '{}',
+            created_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
+        )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            contact_phone TEXT NOT NULL,
+            contact_name TEXT NOT NULL,
+            contact_company TEXT,
+            status TEXT DEFAULT 'active',
+            last_message TEXT,
+            last_message_at TEXT,
+            unread_count INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')),
+            UNIQUE(user_id, contact_phone)
+        )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id SERIAL PRIMARY KEY,
+            conversation_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            direction TEXT NOT NULL,
+            body TEXT NOT NULL,
+            from_number TEXT,
+            to_number TEXT,
+            twilio_sid TEXT,
+            status TEXT DEFAULT 'sent',
+            sent_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
+        )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS coach_sessions (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL UNIQUE,
+            session_json TEXT DEFAULT '[]',
+            mission TEXT DEFAULT 'intake',
+            updated_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
+        )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS generated_docs (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            doc_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
+        )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS appointments (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            business_name TEXT,
+            business_phone TEXT,
+            appt_datetime TEXT,
+            notes TEXT,
+            status TEXT DEFAULT 'scheduled',
+            created_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
+        )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS credits_log (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            amount INTEGER,
+            reason TEXT,
+            stripe_session TEXT,
+            created_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
+        )""")
+        conn.commit()
+        cur.close()
+        conn.close()
+        return
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,7 +257,7 @@ def get_user(request: Request):
     token = request.headers.get("Authorization","").replace("Bearer ","")
     if not token: raise HTTPException(401,"No token")
     conn = get_db()
-    u = conn.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+    u = conn.execute("SELECT * FROM users WHERE token=%s", (token,)).fetchone()
     conn.close()
     if not u: raise HTTPException(401,"Invalid token")
     return dict(u)
@@ -245,10 +360,10 @@ SMS DRAFTING: Label outgoing SMS as [SMS TO SEND - ENGLISH] so user knows exactl
 
 async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> dict:
     conn = get_db()
-    session = conn.execute("SELECT * FROM coach_sessions WHERE user_id=?",(user["id"],)).fetchone()
+    session = conn.execute("SELECT * FROM coach_sessions WHERE user_id=%s",(user["id"],)).fetchone()
     history = json.loads(session["session_json"]) if session else []
     if not session:
-        conn.execute("INSERT INTO coach_sessions (user_id,session_json,mission) VALUES (?,?,?)",
+        conn.execute("INSERT INTO coach_sessions (user_id,session_json,mission) VALUES (%s,%s,%s)",
             (user["id"],"[]",mission))
         conn.commit()
 
@@ -288,7 +403,7 @@ async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> d
             reply = f"Coach Ray is momentarily unavailable. ({str(e)[:60]})"
 
     history.append({"role":"assistant","content":reply})
-    conn.execute("UPDATE coach_sessions SET session_json=?,mission=?,updated_at=? WHERE user_id=?",
+    conn.execute("UPDATE coach_sessions SET session_json=%s,mission=%s,updated_at=%s WHERE user_id=%s",
         (json.dumps(history),mission,datetime.utcnow().isoformat(),user["id"]))
 
     doc = None
@@ -300,9 +415,9 @@ async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> d
                    "advance_plan" if "90-day" in reply.lower() else "followup_templates"
         doc_content = await generate_document(doc_type, user)
         if doc_content:
-            cur = conn.execute("INSERT INTO generated_docs (user_id,doc_type,title,content) VALUES (?,?,?,?)",
+            cur = conn.execute("INSERT INTO generated_docs (user_id,doc_type,title,content) VALUES (%s,%s,%s,%s)",
                 (user["id"],doc_type,doc_content["title"],doc_content["content"]))
-            doc = {"id":cur.lastrowid,"type":doc_type,"title":doc_content["title"]}
+            doc = {"id":cur.lastrowid if not is_pg() else cur.fetchone()[0] if cur.rowcount > 0 else 0,"type":doc_type,"title":doc_content["title"]}
 
     conn.commit(); conn.close()
     return {"reply":reply,"mission":mission,"doc":doc}
@@ -353,7 +468,7 @@ def normalize_phone(phone: str) -> str:
 @app.post("/auth/register")
 async def register(req: RegisterRequest):
     conn = get_db()
-    if conn.execute("SELECT id FROM users WHERE email=?",(req.email,)).fetchone():
+    if conn.execute("SELECT id FROM users WHERE email=%s",(req.email,)).fetchone():
         conn.close(); raise HTTPException(400,"Email already registered")
     token = make_token(req.email)
     conn.execute("""INSERT INTO users
@@ -368,11 +483,11 @@ async def register(req: RegisterRequest):
 @app.post("/auth/login")
 async def login(req: LoginRequest):
     conn = get_db()
-    u = conn.execute("SELECT * FROM users WHERE email=? AND password_hash=?",
+    u = conn.execute("SELECT * FROM users WHERE email=%s AND password_hash=%s",
         (req.email,hash_pw(req.password))).fetchone()
     if not u: conn.close(); raise HTTPException(401,"Invalid credentials")
     token = make_token(req.email)
-    conn.execute("UPDATE users SET token=? WHERE id=?",(token,u["id"]))
+    conn.execute("UPDATE users SET token=%s WHERE id=%s",(token,u["id"]))
     conn.commit(); conn.close()
     return {"token":token,"name":u["first_name"],"credits":u["credits"],
             "language":u["language"],"zip_code":u["zip_code"],"state":u["state"]}
@@ -386,7 +501,7 @@ async def update_profile(req: ProfileUpdateRequest, user=Depends(get_user)):
     conn = get_db()
     for f in ["phone","language","skills","target_job","availability","zip_code","state"]:
         v = getattr(req,f,None)
-        if v is not None: conn.execute(f"UPDATE users SET {f}=? WHERE id=?",(v,user["id"]))
+        if v is not None: conn.execute(f"UPDATE users SET {f}=%s WHERE id=%s",(v,user["id"]))
     conn.commit(); conn.close()
     return {"status":"updated"}
 
@@ -421,7 +536,7 @@ async def search_businesses(req: BusinessSearchRequest, user=Depends(get_user)):
 @app.post("/sms/blast")
 async def sms_blast(req: BlastRequest, user=Depends(get_user)):
     conn = get_db()
-    u = conn.execute("SELECT * FROM users WHERE id=?",(user["id"],)).fetchone()
+    u = conn.execute("SELECT * FROM users WHERE id=%s",(user["id"],)).fetchone()
     if u["credits"] < len(req.businesses):
         conn.close(); raise HTTPException(402,f"Need {len(req.businesses)} credits, have {u['credits']}")
     sent,failed,conv_ids = 0,[],[]
@@ -430,25 +545,25 @@ async def sms_blast(req: BlastRequest, user=Depends(get_user)):
         if not phone_raw: failed.append(biz.get("name","Unknown")); continue
         phone = normalize_phone(phone_raw)
         biz_name = biz.get("name","Business")
-        existing = conn.execute("SELECT id FROM conversations WHERE user_id=? AND contact_phone=?",
+        existing = conn.execute("SELECT id FROM conversations WHERE user_id=%s AND contact_phone=%s",
             (user["id"],phone)).fetchone()
         if existing:
             conv_id = existing["id"]
-            conn.execute("UPDATE conversations SET status='active',last_message=?,last_message_at=? WHERE id=?",
+            conn.execute("UPDATE conversations SET status='active',last_message=%s,last_message_at=%s WHERE id=%s",
                 (req.message,datetime.utcnow().isoformat(),conv_id))
         else:
             cur = conn.execute("""INSERT INTO conversations
                 (user_id,contact_phone,contact_name,contact_company,last_message,last_message_at)
                 VALUES (?,?,?,?,?,?)""",(user["id"],phone,biz_name,biz_name,req.message,datetime.utcnow().isoformat()))
-            conv_id = cur.lastrowid
+            conv_id = cur.lastrowid if not is_pg() else cur.fetchone()[0] if cur.rowcount > 0 else 0
         sid = await send_sms(phone, req.message)
         conn.execute("""INSERT INTO messages
             (conversation_id,user_id,direction,body,from_number,to_number,twilio_sid)
             VALUES (?,?,?,?,?,?,?)""",(conv_id,user["id"],"outbound",req.message,TWILIO_FROM or "WorkBridge",phone,sid or ""))
         if sid: sent+=1; conv_ids.append(conv_id)
         else: failed.append(biz_name)
-    if sent>0: conn.execute("UPDATE users SET credits=credits-? WHERE id=?",(sent,user["id"]))
-    new_bal = conn.execute("SELECT credits FROM users WHERE id=?",(user["id"],)).fetchone()["credits"]
+    if sent>0: conn.execute("UPDATE users SET credits=credits-? WHERE id=%s",(sent,user["id"]))
+    new_bal = conn.execute("SELECT credits FROM users WHERE id=%s",(user["id"],)).fetchone()["credits"]
     conn.commit(); conn.close()
     await manager.send(u["token"],{"type":"blast_complete","sent":sent,"failed":failed,
         "credits_remaining":new_bal,"conversation_ids":conv_ids})
@@ -457,35 +572,35 @@ async def sms_blast(req: BlastRequest, user=Depends(get_user)):
 @app.get("/sms/inbox")
 async def get_inbox(user=Depends(get_user)):
     conn = get_db()
-    convs = conn.execute("SELECT * FROM conversations WHERE user_id=? ORDER BY last_message_at DESC",(user["id"],)).fetchall()
+    convs = conn.execute("SELECT * FROM conversations WHERE user_id=%s ORDER BY last_message_at DESC",(user["id"],)).fetchall()
     conn.close()
     return {"conversations":[dict(c) for c in convs]}
 
 @app.get("/sms/thread/{conversation_id}")
 async def get_thread(conversation_id: int, user=Depends(get_user)):
     conn = get_db()
-    conv = conn.execute("SELECT * FROM conversations WHERE id=? AND user_id=?",(conversation_id,user["id"])).fetchone()
+    conv = conn.execute("SELECT * FROM conversations WHERE id=%s AND user_id=%s",(conversation_id,user["id"])).fetchone()
     if not conv: conn.close(); raise HTTPException(404,"Not found")
-    msgs = conn.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY sent_at ASC",(conversation_id,)).fetchall()
-    conn.execute("UPDATE conversations SET unread_count=0 WHERE id=?",(conversation_id,))
+    msgs = conn.execute("SELECT * FROM messages WHERE conversation_id=%s ORDER BY sent_at ASC",(conversation_id,)).fetchall()
+    conn.execute("UPDATE conversations SET unread_count=0 WHERE id=%s",(conversation_id,))
     conn.commit(); conn.close()
     return {"conversation":dict(conv),"messages":[dict(m) for m in msgs]}
 
 @app.post("/sms/reply")
 async def send_reply(req: ReplyRequest, user=Depends(get_user)):
     conn = get_db()
-    conv = conn.execute("SELECT * FROM conversations WHERE id=? AND user_id=?",(req.conversation_id,user["id"])).fetchone()
+    conv = conn.execute("SELECT * FROM conversations WHERE id=%s AND user_id=%s",(req.conversation_id,user["id"])).fetchone()
     if not conv: conn.close(); raise HTTPException(404,"Not found")
-    u = conn.execute("SELECT credits FROM users WHERE id=?",(user["id"],)).fetchone()
+    u = conn.execute("SELECT credits FROM users WHERE id=%s",(user["id"],)).fetchone()
     if u["credits"]<1: conn.close(); raise HTTPException(402,"No credits")
     sid = await send_sms(conv["contact_phone"],req.body)
     conn.execute("""INSERT INTO messages
         (conversation_id,user_id,direction,body,from_number,to_number,twilio_sid)
         VALUES (?,?,?,?,?,?,?)""",(req.conversation_id,user["id"],"outbound",req.body,TWILIO_FROM or "WorkBridge",conv["contact_phone"],sid or ""))
-    conn.execute("UPDATE conversations SET last_message=?,last_message_at=? WHERE id=?",
+    conn.execute("UPDATE conversations SET last_message=%s,last_message_at=%s WHERE id=%s",
         (req.body,datetime.utcnow().isoformat(),req.conversation_id))
-    conn.execute("UPDATE users SET credits=credits-1 WHERE id=?",(user["id"],))
-    new_bal = conn.execute("SELECT credits FROM users WHERE id=?",(user["id"],)).fetchone()["credits"]
+    conn.execute("UPDATE users SET credits=credits-1 WHERE id=%s",(user["id"],))
+    new_bal = conn.execute("SELECT credits FROM users WHERE id=%s",(user["id"],)).fetchone()["credits"]
     conn.commit(); conn.close()
     return {"status":"sent","credits_remaining":new_bal}
 
@@ -499,15 +614,15 @@ async def inbound_webhook(request: Request):
     from_number = form.get("From","")
     body = form.get("Body","").strip()
     conn = get_db()
-    conv = conn.execute("SELECT * FROM conversations WHERE contact_phone=? ORDER BY last_message_at DESC LIMIT 1",(from_number,)).fetchone()
+    conv = conn.execute("SELECT * FROM conversations WHERE contact_phone=%s ORDER BY last_message_at DESC LIMIT 1",(from_number,)).fetchone()
     if conv:
         conn.execute("""INSERT INTO messages
             (conversation_id,user_id,direction,body,from_number,to_number,status)
             VALUES (?,?,?,?,?,?,?)""",(conv["id"],conv["user_id"],"inbound",body,from_number,TWILIO_FROM or "WorkBridge","received"))
-        conn.execute("""UPDATE conversations SET last_message=?,last_message_at=?,
+        conn.execute("""UPDATE conversations SET last_message=%s,last_message_at=%s,
             unread_count=unread_count+1,status='replied' WHERE id=?""",(body,datetime.utcnow().isoformat(),conv["id"]))
         conn.commit()
-        u = conn.execute("SELECT * FROM users WHERE id=?",(conv["user_id"],)).fetchone()
+        u = conn.execute("SELECT * FROM users WHERE id=%s",(conv["user_id"],)).fetchone()
         if u:
             await manager.send(u["token"],{"type":"new_message","conversation_id":conv["id"],
                 "from":conv["contact_name"],"body":body,"alert":f"🎉 {conv['contact_name']} replied!"})
@@ -532,7 +647,7 @@ async def coach_chat(req: CoachRequest, user=Depends(get_user)):
 @app.get("/coach/session")
 async def get_session(user=Depends(get_user)):
     conn = get_db()
-    s = conn.execute("SELECT * FROM coach_sessions WHERE user_id=?",(user["id"],)).fetchone()
+    s = conn.execute("SELECT * FROM coach_sessions WHERE user_id=%s",(user["id"],)).fetchone()
     conn.close()
     if not s: return {"history":[],"mission":"intake"}
     return {"history":json.loads(s["session_json"]),"mission":s["mission"]}
@@ -540,7 +655,7 @@ async def get_session(user=Depends(get_user)):
 @app.post("/coach/reset")
 async def reset_session(user=Depends(get_user)):
     conn = get_db()
-    conn.execute("DELETE FROM coach_sessions WHERE user_id=?",(user["id"],))
+    conn.execute("DELETE FROM coach_sessions WHERE user_id=%s",(user["id"],))
     conn.commit(); conn.close()
     return {"status":"reset"}
 
@@ -570,14 +685,14 @@ Return ONLY the message text."""
 @app.get("/coach/docs")
 async def get_docs(user=Depends(get_user)):
     conn = get_db()
-    docs = conn.execute("SELECT id,doc_type,title,created_at FROM generated_docs WHERE user_id=? ORDER BY created_at DESC",(user["id"],)).fetchall()
+    docs = conn.execute("SELECT id,doc_type,title,created_at FROM generated_docs WHERE user_id=%s ORDER BY created_at DESC",(user["id"],)).fetchall()
     conn.close()
     return {"docs":[dict(d) for d in docs]}
 
 @app.get("/coach/docs/{doc_id}")
 async def get_doc(doc_id: int, user=Depends(get_user)):
     conn = get_db()
-    doc = conn.execute("SELECT * FROM generated_docs WHERE id=? AND user_id=?",(doc_id,user["id"])).fetchone()
+    doc = conn.execute("SELECT * FROM generated_docs WHERE id=%s AND user_id=%s",(doc_id,user["id"])).fetchone()
     conn.close()
     if not doc: raise HTTPException(404,"Not found")
     return dict(doc)
@@ -586,9 +701,9 @@ async def get_doc(doc_id: int, user=Depends(get_user)):
 async def create_appt(req: AppointmentRequest, background_tasks: BackgroundTasks, user=Depends(get_user)):
     conn = get_db()
     appt_dt = datetime.fromisoformat(req.appt_datetime)
-    cur = conn.execute("INSERT INTO appointments (user_id,business_name,business_phone,appt_datetime,notes) VALUES (?,?,?,?,?)",
+    cur = conn.execute("INSERT INTO appointments (user_id,business_name,business_phone,appt_datetime,notes) VALUES (%s,%s,%s,%s,%s)",
         (user["id"],req.business_name,req.business_phone,req.appt_datetime,req.notes))
-    appt_id = cur.lastrowid; conn.commit(); conn.close()
+    appt_id = cur.lastrowid if not is_pg() else cur.fetchone()[0] if cur.rowcount > 0 else 0; conn.commit(); conn.close()
     background_tasks.add_task(schedule_reminders,appt_id,user,req,appt_dt)
     return {"appt_id":appt_id,"status":"scheduled","message":f"Interview with {req.business_name} scheduled!"}
 
@@ -604,7 +719,7 @@ async def schedule_reminders(appt_id,user,req,appt_dt):
 @app.get("/appointments")
 async def get_appts(user=Depends(get_user)):
     conn = get_db()
-    appts = conn.execute("SELECT * FROM appointments WHERE user_id=? ORDER BY appt_datetime DESC",(user["id"],)).fetchall()
+    appts = conn.execute("SELECT * FROM appointments WHERE user_id=%s ORDER BY appt_datetime DESC",(user["id"],)).fetchall()
     conn.close()
     return {"appointments":[dict(a) for a in appts]}
 
@@ -644,9 +759,9 @@ async def stripe_webhook(request: Request):
         uid = int(meta.get("user_id",0)); cred = int(meta.get("credits",0))
         if uid and cred:
             conn = get_db()
-            conn.execute("UPDATE users SET credits=credits+? WHERE id=?",(cred,uid))
+            conn.execute("UPDATE users SET credits=credits+? WHERE id=%s",(cred,uid))
             conn.commit()
-            u = conn.execute("SELECT token,phone FROM users WHERE id=?",(uid,)).fetchone()
+            u = conn.execute("SELECT token,phone FROM users WHERE id=%s",(uid,)).fetchone()
             conn.close()
             if u:
                 await manager.send(u["token"],{"type":"credits_added","credits":cred})
@@ -656,14 +771,14 @@ async def stripe_webhook(request: Request):
 @app.get("/credits/balance")
 async def balance(user=Depends(get_user)):
     conn = get_db()
-    u = conn.execute("SELECT credits FROM users WHERE id=?",(user["id"],)).fetchone()
+    u = conn.execute("SELECT credits FROM users WHERE id=%s",(user["id"],)).fetchone()
     conn.close()
     return {"credits":u["credits"] if u else 0,"packages":PACKAGES}
 
 @app.websocket("/ws/{token}")
 async def ws_endpoint(websocket: WebSocket, token: str):
     conn = get_db()
-    u = conn.execute("SELECT id FROM users WHERE token=?",(token,)).fetchone()
+    u = conn.execute("SELECT id FROM users WHERE token=%s",(token,)).fetchone()
     conn.close()
     if not u: await websocket.close(code=4001); return
     await manager.connect(token,websocket)
@@ -688,7 +803,7 @@ async def root():
 @app.get("/user/missions")
 async def get_user_missions(user=Depends(get_user)):
     conn = get_db()
-    u = conn.execute("SELECT profile_json FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT profile_json FROM users WHERE id=%s", (user["id"],)).fetchone()
     conn.close()
     profile = json.loads(u["profile_json"]) if u and u["profile_json"] else {}
     return {"missions": profile.get("missions", [])}
@@ -697,10 +812,10 @@ async def get_user_missions(user=Depends(get_user)):
 async def save_user_missions(request: Request, user=Depends(get_user)):
     body = await request.json()
     conn = get_db()
-    u = conn.execute("SELECT profile_json FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT profile_json FROM users WHERE id=%s", (user["id"],)).fetchone()
     profile = json.loads(u["profile_json"]) if u and u["profile_json"] else {}
     profile["missions"] = body.get("missions", [])
-    conn.execute("UPDATE users SET profile_json=? WHERE id=?", (json.dumps(profile), user["id"]))
+    conn.execute("UPDATE users SET profile_json=%s WHERE id=%s", (json.dumps(profile), user["id"]))
     conn.commit(); conn.close()
     return {"status": "saved"}
 
@@ -710,15 +825,15 @@ async def save_profile(request: Request, user=Depends(get_user)):
     mission = body.get("mission", "")
     answers = body.get("answers", {})
     conn = get_db()
-    u = conn.execute("SELECT profile_json FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT profile_json FROM users WHERE id=%s", (user["id"],)).fetchone()
     profile = json.loads(u["profile_json"]) if u and u["profile_json"] else {}
     profile[f"mission_{mission}"] = answers
     profile["last_mission"] = mission
     if answers.get("phone"):
-        conn.execute("UPDATE users SET phone=? WHERE id=?", (answers["phone"], user["id"]))
+        conn.execute("UPDATE users SET phone=%s WHERE id=%s", (answers["phone"], user["id"]))
     if answers.get("zip"):
-        conn.execute("UPDATE users SET zip_code=? WHERE id=?", (answers["zip"], user["id"]))
-    conn.execute("UPDATE users SET profile_json=? WHERE id=?", (json.dumps(profile), user["id"]))
+        conn.execute("UPDATE users SET zip_code=%s WHERE id=%s", (answers["zip"], user["id"]))
+    conn.execute("UPDATE users SET profile_json=%s WHERE id=%s", (json.dumps(profile), user["id"]))
     conn.commit(); conn.close()
     return {"status": "saved"}
 
@@ -753,7 +868,7 @@ async def agent_search(request: Request, user=Depends(get_user)):
     language = body.get("language", "en")
     answers = body.get("answers", {})
     conn = get_db()
-    u = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT * FROM users WHERE id=%s", (user["id"],)).fetchone()
     if u["credits"] < 1:
         conn.close(); raise HTTPException(402, "No credits remaining")
     name = u["first_name"] or ""
@@ -796,21 +911,21 @@ async def agent_search(request: Request, user=Depends(get_user)):
         if not phone_raw: continue
         phone = normalize_phone(phone_raw)
         biz_name = biz.get("name", "Business")
-        existing = conn.execute("SELECT id FROM conversations WHERE user_id=? AND contact_phone=?", (user["id"], phone)).fetchone()
+        existing = conn.execute("SELECT id FROM conversations WHERE user_id=%s AND contact_phone=%s", (user["id"], phone)).fetchone()
         if existing:
             conv_id = existing["id"]
-            conn.execute("UPDATE conversations SET status='active', last_message=?, last_message_at=? WHERE id=?", (outreach_msg, datetime.utcnow().isoformat(), conv_id))
+            conn.execute("UPDATE conversations SET status='active', last_message=%s, last_message_at=%s WHERE id=%s", (outreach_msg, datetime.utcnow().isoformat(), conv_id))
         else:
-            cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (?,?,?,?,?,?)",
+            cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (%s,%s,%s,%s,%s,%s)",
                 (user["id"], phone, biz_name, biz_name, outreach_msg, datetime.utcnow().isoformat()))
-            conv_id = cur.lastrowid
+            conv_id = cur.lastrowid if not is_pg() else cur.fetchone()[0] if cur.rowcount > 0 else 0
         sid = await send_sms(phone, outreach_msg)
-        conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (%s,%s,%s,%s,%s,%s,%s)",
             (conv_id, user["id"], "outbound", outreach_msg, TWILIO_FROM or "WorkBridge", phone, sid or ""))
         if sid: sent += 1
     if sent > 0:
-        conn.execute("UPDATE users SET credits=credits-? WHERE id=?", (sent, user["id"]))
-    new_bal = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()["credits"]
+        conn.execute("UPDATE users SET credits=credits-? WHERE id=%s", (sent, user["id"]))
+    new_bal = conn.execute("SELECT credits FROM users WHERE id=%s", (user["id"],)).fetchone()["credits"]
     conn.commit(); conn.close()
     confirm = f"Sent to {sent} of {len(businesses)} businesses near {zip_code}!" if language == "en" else f"¡Mensajes enviados a {sent} de {len(businesses)} empresas cerca de {zip_code}!"
     return {"messages_sent": sent, "businesses_found": len(businesses), "credits_remaining": new_bal, "outreach_message": outreach_msg, "user_confirmation": confirm}
@@ -840,20 +955,20 @@ async def messages_reply_compat(request: Request, user=Depends(get_user)):
     if not to or not message: raise HTTPException(400, "Missing to or message")
     phone = normalize_phone(to)
     conn = get_db()
-    u = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT credits FROM users WHERE id=%s", (user["id"],)).fetchone()
     if u["credits"] < 1: conn.close(); raise HTTPException(402, "No credits remaining")
-    conv = conn.execute("SELECT id FROM conversations WHERE user_id=? AND contact_phone=?", (user["id"], phone)).fetchone()
+    conv = conn.execute("SELECT id FROM conversations WHERE user_id=%s AND contact_phone=%s", (user["id"], phone)).fetchone()
     if conv:
         conv_id = conv["id"]
     else:
-        cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (?,?,?,?,?,?)",
+        cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (%s,%s,%s,%s,%s,%s)",
             (user["id"], phone, business_name, business_name, message, datetime.utcnow().isoformat()))
-        conv_id = cur.lastrowid
+        conv_id = cur.lastrowid if not is_pg() else cur.fetchone()[0] if cur.rowcount > 0 else 0
     sid = await send_sms(phone, message)
-    conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (%s,%s,%s,%s,%s,%s,%s)",
         (conv_id, user["id"], "outbound", message, TWILIO_FROM or "WorkBridge", phone, sid or ""))
-    conn.execute("UPDATE conversations SET last_message=?, last_message_at=? WHERE id=?", (message, datetime.utcnow().isoformat(), conv_id))
-    conn.execute("UPDATE users SET credits=credits-1 WHERE id=?", (user["id"],))
+    conn.execute("UPDATE conversations SET last_message=%s, last_message_at=%s WHERE id=%s", (message, datetime.utcnow().isoformat(), conv_id))
+    conn.execute("UPDATE users SET credits=credits-1 WHERE id=%s", (user["id"],))
     conn.commit(); conn.close()
     return {"status": "sent", "sid": sid}
 
@@ -890,7 +1005,7 @@ async def sms_history_compat(limit: int = 50, user=Depends(get_user)):
 @app.get("/user/missions")
 async def get_user_missions(user=Depends(get_user)):
     conn = get_db()
-    u = conn.execute("SELECT profile_json FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT profile_json FROM users WHERE id=%s", (user["id"],)).fetchone()
     conn.close()
     profile = json.loads(u["profile_json"]) if u and u["profile_json"] else {}
     return {"missions": profile.get("missions", [])}
@@ -899,10 +1014,10 @@ async def get_user_missions(user=Depends(get_user)):
 async def save_user_missions(request: Request, user=Depends(get_user)):
     body = await request.json()
     conn = get_db()
-    u = conn.execute("SELECT profile_json FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT profile_json FROM users WHERE id=%s", (user["id"],)).fetchone()
     profile = json.loads(u["profile_json"]) if u and u["profile_json"] else {}
     profile["missions"] = body.get("missions", [])
-    conn.execute("UPDATE users SET profile_json=? WHERE id=?", (json.dumps(profile), user["id"]))
+    conn.execute("UPDATE users SET profile_json=%s WHERE id=%s", (json.dumps(profile), user["id"]))
     conn.commit(); conn.close()
     return {"status": "saved"}
 
@@ -912,15 +1027,15 @@ async def save_profile(request: Request, user=Depends(get_user)):
     mission = body.get("mission", "")
     answers = body.get("answers", {})
     conn = get_db()
-    u = conn.execute("SELECT profile_json FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT profile_json FROM users WHERE id=%s", (user["id"],)).fetchone()
     profile = json.loads(u["profile_json"]) if u and u["profile_json"] else {}
     profile[f"mission_{mission}"] = answers
     profile["last_mission"] = mission
     if answers.get("phone"):
-        conn.execute("UPDATE users SET phone=? WHERE id=?", (answers["phone"], user["id"]))
+        conn.execute("UPDATE users SET phone=%s WHERE id=%s", (answers["phone"], user["id"]))
     if answers.get("zip"):
-        conn.execute("UPDATE users SET zip_code=? WHERE id=?", (answers["zip"], user["id"]))
-    conn.execute("UPDATE users SET profile_json=? WHERE id=?", (json.dumps(profile), user["id"]))
+        conn.execute("UPDATE users SET zip_code=%s WHERE id=%s", (answers["zip"], user["id"]))
+    conn.execute("UPDATE users SET profile_json=%s WHERE id=%s", (json.dumps(profile), user["id"]))
     conn.commit(); conn.close()
     return {"status": "saved"}
 
@@ -955,7 +1070,7 @@ async def agent_search(request: Request, user=Depends(get_user)):
     language = body.get("language", "en")
     answers = body.get("answers", {})
     conn = get_db()
-    u = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT * FROM users WHERE id=%s", (user["id"],)).fetchone()
     if u["credits"] < 1:
         conn.close(); raise HTTPException(402, "No credits remaining")
     name = u["first_name"] or ""
@@ -998,21 +1113,21 @@ async def agent_search(request: Request, user=Depends(get_user)):
         if not phone_raw: continue
         phone = normalize_phone(phone_raw)
         biz_name = biz.get("name", "Business")
-        existing = conn.execute("SELECT id FROM conversations WHERE user_id=? AND contact_phone=?", (user["id"], phone)).fetchone()
+        existing = conn.execute("SELECT id FROM conversations WHERE user_id=%s AND contact_phone=%s", (user["id"], phone)).fetchone()
         if existing:
             conv_id = existing["id"]
-            conn.execute("UPDATE conversations SET status='active', last_message=?, last_message_at=? WHERE id=?", (outreach_msg, datetime.utcnow().isoformat(), conv_id))
+            conn.execute("UPDATE conversations SET status='active', last_message=%s, last_message_at=%s WHERE id=%s", (outreach_msg, datetime.utcnow().isoformat(), conv_id))
         else:
-            cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (?,?,?,?,?,?)",
+            cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (%s,%s,%s,%s,%s,%s)",
                 (user["id"], phone, biz_name, biz_name, outreach_msg, datetime.utcnow().isoformat()))
-            conv_id = cur.lastrowid
+            conv_id = cur.lastrowid if not is_pg() else cur.fetchone()[0] if cur.rowcount > 0 else 0
         sid = await send_sms(phone, outreach_msg)
-        conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (%s,%s,%s,%s,%s,%s,%s)",
             (conv_id, user["id"], "outbound", outreach_msg, TWILIO_FROM or "WorkBridge", phone, sid or ""))
         if sid: sent += 1
     if sent > 0:
-        conn.execute("UPDATE users SET credits=credits-? WHERE id=?", (sent, user["id"]))
-    new_bal = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()["credits"]
+        conn.execute("UPDATE users SET credits=credits-? WHERE id=%s", (sent, user["id"]))
+    new_bal = conn.execute("SELECT credits FROM users WHERE id=%s", (user["id"],)).fetchone()["credits"]
     conn.commit(); conn.close()
     confirm = f"Sent to {sent} of {len(businesses)} businesses near {zip_code}!" if language == "en" else f"¡Mensajes enviados a {sent} de {len(businesses)} empresas cerca de {zip_code}!"
     return {"messages_sent": sent, "businesses_found": len(businesses), "credits_remaining": new_bal, "outreach_message": outreach_msg, "user_confirmation": confirm}
@@ -1042,20 +1157,20 @@ async def messages_reply_compat(request: Request, user=Depends(get_user)):
     if not to or not message: raise HTTPException(400, "Missing to or message")
     phone = normalize_phone(to)
     conn = get_db()
-    u = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()
+    u = conn.execute("SELECT credits FROM users WHERE id=%s", (user["id"],)).fetchone()
     if u["credits"] < 1: conn.close(); raise HTTPException(402, "No credits remaining")
-    conv = conn.execute("SELECT id FROM conversations WHERE user_id=? AND contact_phone=?", (user["id"], phone)).fetchone()
+    conv = conn.execute("SELECT id FROM conversations WHERE user_id=%s AND contact_phone=%s", (user["id"], phone)).fetchone()
     if conv:
         conv_id = conv["id"]
     else:
-        cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (?,?,?,?,?,?)",
+        cur = conn.execute("INSERT INTO conversations (user_id, contact_phone, contact_name, contact_company, last_message, last_message_at) VALUES (%s,%s,%s,%s,%s,%s)",
             (user["id"], phone, business_name, business_name, message, datetime.utcnow().isoformat()))
-        conv_id = cur.lastrowid
+        conv_id = cur.lastrowid if not is_pg() else cur.fetchone()[0] if cur.rowcount > 0 else 0
     sid = await send_sms(phone, message)
-    conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO messages (conversation_id, user_id, direction, body, from_number, to_number, twilio_sid) VALUES (%s,%s,%s,%s,%s,%s,%s)",
         (conv_id, user["id"], "outbound", message, TWILIO_FROM or "WorkBridge", phone, sid or ""))
-    conn.execute("UPDATE conversations SET last_message=?, last_message_at=? WHERE id=?", (message, datetime.utcnow().isoformat(), conv_id))
-    conn.execute("UPDATE users SET credits=credits-1 WHERE id=?", (user["id"],))
+    conn.execute("UPDATE conversations SET last_message=%s, last_message_at=%s WHERE id=%s", (message, datetime.utcnow().isoformat(), conv_id))
+    conn.execute("UPDATE users SET credits=credits-1 WHERE id=%s", (user["id"],))
     conn.commit(); conn.close()
     return {"status": "sent", "sid": sid}
 
@@ -1093,8 +1208,8 @@ async def dev_add_credits(request: Request, user=Depends(get_user)):
     body = await request.json()
     amount = min(int(body.get("amount", 50)), 200)  # cap at 200
     conn = get_db()
-    conn.execute("UPDATE users SET credits=credits+? WHERE id=?", (amount, user["id"]))
-    new_bal = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()["credits"]
+    conn.execute("UPDATE users SET credits=credits+? WHERE id=%s", (amount, user["id"]))
+    new_bal = conn.execute("SELECT credits FROM users WHERE id=%s", (user["id"],)).fetchone()["credits"]
     conn.commit(); conn.close()
     return {"credits": new_bal, "added": amount}
 
@@ -1114,7 +1229,7 @@ async def forgot_password(request: Request):
     conn = get_db()
 
     # Always respond success to prevent email enumeration
-    user = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    user = conn.execute("SELECT * FROM users WHERE email=%s", (email,)).fetchone()
     if not user:
         conn.close()
         return {"status": "ok", "message": "If that email exists you will receive a reset link"}
@@ -1127,7 +1242,7 @@ async def forgot_password(request: Request):
     profile = json.loads(user["profile_json"]) if user["profile_json"] else {}
     profile["reset_token"]   = reset_token
     profile["reset_expires"] = expires_at
-    conn.execute("UPDATE users SET profile_json=? WHERE id=?", (json.dumps(profile), user["id"]))
+    conn.execute("UPDATE users SET profile_json=%s WHERE id=%s", (json.dumps(profile), user["id"]))
     conn.commit()
     conn.close()
 
