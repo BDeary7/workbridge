@@ -1818,3 +1818,76 @@ async def placement_report(user=Depends(get_user)):
         }
     }
     return report
+
+# ── AGENCY / CASE MANAGER ENDPOINTS ──────────────────────────────────────────
+
+@app.get("/agency/stats")
+async def agency_stats(user=Depends(get_user)):
+    """Case manager dashboard — all clients + stats"""
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+
+    clients = conn.execute(
+        f"""SELECT u.id, u.first_name, u.last_name, u.phone, u.zip_code,
+        u.state, u.language, u.credits, u.target_job, u.created_at,
+        (SELECT status FROM placements WHERE user_id=u.id
+         ORDER BY updated_at DESC LIMIT 1) as placement_status
+        FROM users WHERE u.id > 0 ORDER BY u.created_at DESC"""
+    ).fetchall()
+
+    total_contacted = conn.execute("SELECT COUNT(*) as c FROM conversations").fetchone()
+    total_replied   = conn.execute("SELECT COUNT(*) as c FROM conversations WHERE status='replied'").fetchone()
+    total_hired     = conn.execute("SELECT COUNT(*) as c FROM placements WHERE status='hired'").fetchone()
+    total_retained  = conn.execute("SELECT COUNT(*) as c FROM placements WHERE status='retained_30'").fetchone()
+    total_interviewed = conn.execute("SELECT COUNT(*) as c FROM placements WHERE status='interviewed'").fetchone()
+
+    def gc(row): return row["c"] if isinstance(row, dict) else row[0]
+
+    conn.close()
+    return {
+        "total_clients":      len(clients),
+        "total_contacted":    gc(total_contacted),
+        "total_replied":      gc(total_replied),
+        "total_interviewed":  gc(total_interviewed),
+        "total_hired":        gc(total_hired),
+        "total_retained_30":  gc(total_retained),
+        "clients": [dict(c) for c in clients]
+    }
+
+@app.get("/agency/client/{client_id}")
+async def agency_client_detail(client_id: int, user=Depends(get_user)):
+    """Get full detail for a specific client"""
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+
+    client = conn.execute(
+        f"SELECT * FROM users WHERE id={ph}", (client_id,)
+    ).fetchone()
+
+    if not client:
+        conn.close()
+        raise HTTPException(404, "Client not found")
+
+    placements = conn.execute(
+        f"""SELECT p.*, c.contact_name, c.contact_phone
+        FROM placements p
+        LEFT JOIN conversations c ON p.conversation_id = c.id
+        WHERE p.user_id={ph}
+        ORDER BY p.updated_at DESC""",
+        (client_id,)
+    ).fetchall()
+
+    conversations = conn.execute(
+        f"""SELECT * FROM conversations WHERE user_id={ph}
+        ORDER BY last_message_at DESC""",
+        (client_id,)
+    ).fetchall()
+
+    conn.close()
+    return {
+        "client": {k:v for k,v in dict(client).items() if k != "password_hash"},
+        "placements": [dict(p) for p in placements],
+        "conversations": [dict(c) for c in conversations],
+        "total_contacted": len(conversations),
+        "total_replied": len([c for c in conversations if (c["status"] if isinstance(c, dict) else c[5]) == "replied"])
+    }
