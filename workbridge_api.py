@@ -158,6 +158,19 @@ def init_db():
             stripe_session TEXT,
             created_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
         )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS placements (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            conversation_id INTEGER,
+            employer_name TEXT,
+            status TEXT DEFAULT 'contacted',
+            notes TEXT,
+            wage TEXT,
+            hired_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )""")
         conn.commit()
         cur.close()
         conn.close()
@@ -237,6 +250,18 @@ def init_db():
         reason TEXT,
         stripe_session TEXT,
         created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS placements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        conversation_id INTEGER,
+        employer_name TEXT,
+        status TEXT DEFAULT 'contacted',
+        notes TEXT,
+        wage TEXT,
+        hired_at TEXT,
+        created_at TEXT,
+        updated_at TEXT
     );
     """)
     conn.commit(); conn.close()
@@ -1658,3 +1683,138 @@ Return ONLY the message."""
         "mission": mission,
         "user_confirmation": confirm.get(language, confirm["en"])
     }
+
+# ── PLACEMENT TRACKING ────────────────────────────────────────────────────────
+
+@app.post("/placements/update")
+async def update_placement(request: Request, user=Depends(get_user)):
+    """Track placement status for a conversation"""
+    body = await request.json()
+    conv_id = body.get("conversation_id")
+    status  = body.get("status")  # contacted|replied|interviewed|offered|hired|retained_30|retained_90
+    notes   = body.get("notes", "")
+    employer_name = body.get("employer_name", "")
+    wage    = body.get("wage", "")
+
+    valid = ["contacted","replied","interviewed","offered","hired","retained_30","retained_90","declined"]
+    if status not in valid:
+        raise HTTPException(400, f"Invalid status. Must be one of: {valid}")
+
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+
+    # Check if placement record exists
+    existing = conn.execute(
+        f"SELECT id FROM placements WHERE user_id={ph} AND conversation_id={ph}",
+        (user["id"], conv_id)
+    ).fetchone()
+
+    now = datetime.utcnow().isoformat()
+
+    if existing:
+        pid = existing["id"] if isinstance(existing, dict) else existing[0]
+        conn.execute(
+            f"""UPDATE placements SET status={ph}, notes={ph},
+            employer_name={ph}, wage={ph}, updated_at={ph},
+            hired_at=CASE WHEN {ph}='hired' THEN {ph} ELSE hired_at END
+            WHERE id={ph}""",
+            (status, notes, employer_name, wage, now, status, now, pid)
+        )
+    else:
+        conn.execute(
+            f"""INSERT INTO placements
+            (user_id, conversation_id, employer_name, status, notes, wage, created_at, updated_at)
+            VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})""",
+            (user["id"], conv_id, employer_name, status, notes, wage, now, now)
+        )
+
+    conn.commit(); conn.close()
+    return {"status": "updated", "placement_status": status}
+
+@app.get("/placements/my")
+async def my_placements(user=Depends(get_user)):
+    """Get all placement records for current user"""
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+    placements = conn.execute(
+        f"""SELECT p.*, c.contact_name, c.contact_phone
+        FROM placements p
+        LEFT JOIN conversations c ON p.conversation_id = c.id
+        WHERE p.user_id={ph}
+        ORDER BY p.updated_at DESC""",
+        (user["id"],)
+    ).fetchall()
+    conn.close()
+    return {"placements": [dict(p) for p in placements]}
+
+@app.get("/placements/stats")
+async def placement_stats(user=Depends(get_user)):
+    """OC-compliant placement statistics"""
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+
+    total_contacted = conn.execute(
+        f"SELECT COUNT(*) as c FROM conversations WHERE user_id={ph}", (user["id"],)
+    ).fetchone()
+    total_replied = conn.execute(
+        f"SELECT COUNT(*) as c FROM conversations WHERE user_id={ph} AND status='replied'", (user["id"],)
+    ).fetchone()
+
+    placement_counts = conn.execute(
+        f"""SELECT status, COUNT(*) as c FROM placements
+        WHERE user_id={ph} GROUP BY status""", (user["id"],)
+    ).fetchall()
+
+    stats = {
+        "total_contacted": total_contacted["c"] if isinstance(total_contacted, dict) else total_contacted[0],
+        "total_replied": total_replied["c"] if isinstance(total_replied, dict) else total_replied[0],
+        "placements": {p["status"] if isinstance(p, dict) else p[0]: p["c"] if isinstance(p, dict) else p[1] for p in placement_counts}
+    }
+
+    hired = stats["placements"].get("hired", 0)
+    contacted = stats["total_contacted"] or 1
+    stats["placement_rate"] = round((hired / contacted) * 100, 1)
+    stats["reply_rate"] = round((stats["total_replied"] / contacted) * 100, 1)
+
+    conn.close()
+    return stats
+
+@app.get("/placements/report")
+async def placement_report(user=Depends(get_user)):
+    """Generate OC-compliant monthly placement report"""
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+
+    # Get full pipeline
+    pipeline = conn.execute(
+        f"""SELECT p.status, p.employer_name, p.wage, p.created_at, p.updated_at,
+        c.contact_name, c.contact_phone
+        FROM placements p
+        LEFT JOIN conversations c ON p.conversation_id = c.id
+        WHERE p.user_id={ph}
+        ORDER BY p.updated_at DESC""",
+        (user["id"],)
+    ).fetchall()
+
+    u = conn.execute(f"SELECT * FROM users WHERE id={ph}", (user["id"],)).fetchone()
+    conn.close()
+
+    user_name = f"{u['first_name']} {u['last_name']}" if isinstance(u, dict) else f"{u[1]} {u[2]}"
+
+    report = {
+        "generated_at": datetime.utcnow().isoformat(),
+        "client_name": user_name,
+        "platform": "WorkBridge — workbridgesms.com",
+        "report_period": datetime.utcnow().strftime("%B %Y"),
+        "pipeline": [dict(p) for p in pipeline],
+        "oc_metrics": {
+            "total_employers_contacted": len([p for p in pipeline]),
+            "employers_replied": len([p for p in pipeline if (p["status"] if isinstance(p, dict) else p[0]) in ["replied","interviewed","offered","hired","retained_30","retained_90"]]),
+            "interviews_completed": len([p for p in pipeline if (p["status"] if isinstance(p, dict) else p[0]) in ["interviewed","offered","hired","retained_30","retained_90"]]),
+            "job_offers_received": len([p for p in pipeline if (p["status"] if isinstance(p, dict) else p[0]) in ["offered","hired","retained_30","retained_90"]]),
+            "placements_made": len([p for p in pipeline if (p["status"] if isinstance(p, dict) else p[0]) in ["hired","retained_30","retained_90"]]),
+            "30_day_retention": len([p for p in pipeline if (p["status"] if isinstance(p, dict) else p[0]) in ["retained_30","retained_90"]]),
+            "90_day_retention": len([p for p in pipeline if (p["status"] if isinstance(p, dict) else p[0]) == "retained_90"]),
+        }
+    }
+    return report
