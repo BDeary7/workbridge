@@ -452,6 +452,7 @@ export default function Dashboard(){
             const resLines = (translateData.resources||[]).slice(0,3).map((r:any)=>' • '+r.name+' — '+r.desc).join('\n')
             const mosMsg = '🎖️ MOS Translation for '+(na['mos_code']?.toUpperCase()||'your service')+':\n\n'+translateData.civilian_translation+'\n\n📌 Key Resources:\n'+resLines
             setMsgs(m=>[...m,{r:'a',c:mosMsg}])
+          }
         } catch {}
       }
       try{
