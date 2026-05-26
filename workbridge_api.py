@@ -1411,3 +1411,250 @@ Keep it practical and actionable. Under 200 words."""
             {"name": "American Corporate Partners", "url": "https://acp-usa.org", "desc": "Free mentoring from executives"},
         ]
     }
+
+# ── MISSION-AWARE SEARCH ENGINE ───────────────────────────────────────────────
+
+MISSION_SEARCH_CONFIG = {
+    "job": {
+        "category": "staffing agency employment",
+        "outreach": "job seeker looking for work",
+        "doc": "We connect pre-screened candidates via SMS. Are you hiring?"
+    },
+    "home": {
+        "category": "home repair contractor licensed",
+        "outreach": "homeowner needing home services",
+        "doc": "I need a licensed contractor for home repair near {zip}. Available immediately."
+    },
+    "senior": {
+        "category": "assisted living senior care facility",
+        "outreach": "family seeking senior care placement",
+        "doc": "We are looking for senior care options near {zip}. Can you help?"
+    },
+    "education": {
+        "category": "GED adult education trade school",
+        "outreach": "adult learner seeking education programs",
+        "doc": "I am looking for GED or trade certification programs near {zip}."
+    },
+    "housing": {
+        "category": "affordable housing social services nonprofit",
+        "outreach": "person seeking housing assistance",
+        "doc": "I need housing assistance resources near {zip}. Can you help?"
+    },
+    "business": {
+        "category": "job seekers employment candidates staffing",
+        "outreach": "business owner hiring workers",
+        "doc": "We have pre-screened candidates available in {zip}. Are you hiring?"
+    },
+    "vehicle": {
+        "category": "car dealership auto sales USAA military",
+        "outreach": "buyer seeking vehicle purchase",
+        "doc": "I am looking to purchase a vehicle near {zip}. Do you have inventory available?"
+    },
+    "debt": {
+        "category": "credit counseling debt relief financial advisor nonprofit",
+        "outreach": "person seeking debt and financial relief",
+        "doc": "I need financial counseling services near {zip}. Do you offer free consultations?"
+    },
+    "chores": {
+        "category": "house cleaning lawn care home services",
+        "outreach": "homeowner needing household help",
+        "doc": "I need regular household services near {zip}. Do you have availability?"
+    },
+    "veteran": {
+        "category": "veteran services VA benefits employment",
+        "outreach": "veteran seeking employment and benefits",
+        "doc": "I am a veteran seeking employment and benefits assistance near {zip}."
+    },
+}
+
+# 14 Staffing Agencies from OC Workforce Solutions
+OC_STAFFING_AGENCIES = [
+    {"name": "Robert Half Management Resources", "url": "roberthalf.com", "phone": "9492510440"},
+    {"name": "Ultimate Staffing Services", "url": "ultimatestaffing.com", "phone": ""},
+    {"name": "East Ridge Workforce Solutions", "url": "eastridge.com", "phone": ""},
+    {"name": "Express Employment Professionals", "url": "expresspros.com", "phone": ""},
+    {"name": "Action Resource Management Inc", "url": "actionresourcemgmt.com", "phone": ""},
+    {"name": "West Coast Staffing", "url": "wcstaffing.net", "phone": ""},
+    {"name": "Vault Workforce Solutions", "url": "jobs.vault.com", "phone": ""},
+    {"name": "Staff Seekers Inc", "url": "staffseekers.com", "phone": ""},
+    {"name": "Kimco Staffing Services", "url": "kimco.com", "phone": ""},
+    {"name": "Tony Beare Inc", "url": "tonybeare.com", "phone": ""},
+    {"name": "Pirate Staffing", "url": "poweredstaffing.com", "phone": ""},
+    {"name": "Staffing Solutions", "url": "staffingsolutions.us", "phone": ""},
+    {"name": "PeopleReady", "url": "peopleready.com", "phone": ""},
+    {"name": "AMP Staffing Agency", "url": "callamp.com", "phone": ""},
+]
+
+@app.get("/coach/staffing-agencies")
+async def get_staffing_agencies(user=Depends(get_user)):
+    """Return OC staffing agencies list for employer outreach"""
+    return {"agencies": OC_STAFFING_AGENCIES, "total": len(OC_STAFFING_AGENCIES)}
+
+@app.post("/coach/mission-search")
+async def mission_search(request: Request, user=Depends(get_user)):
+    """Dynamic search engine for all 10 missions"""
+    body     = await request.json()
+    mission  = body.get("mission", "job")
+    answers  = body.get("answers", {})
+    language = body.get("language", user.get("language", "en"))
+
+    zip_code = answers.get("zip") or answers.get("zip_code") or user.get("zip_code", "90001")
+    state    = user.get("state", "CA")
+    name     = user.get("first_name", "")
+
+    config = MISSION_SEARCH_CONFIG.get(mission, MISSION_SEARCH_CONFIG["job"])
+    category = answers.get("job_type") or answers.get("service_type") or answers.get("care_type") or config["category"]
+
+    # Build personalized outreach message
+    outreach_template = config["doc"].replace("{zip}", zip_code)
+
+    if ANTHROPIC_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                lang_note = "English — for US businesses." if language == "en" else f"{language}"
+                prompt = f"""Write a professional SMS (under 160 chars) from {name} who is a {config['outreach']} near {zip_code}.
+Context: {str(answers)[:200]}
+{lang_note}
+Include their name, specific need, ZIP area. End with WorkBridge. Sound human.
+Return ONLY the message."""
+                res = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                    json={"model": "claude-sonnet-4-20250514", "max_tokens": 200,
+                          "messages": [{"role": "user", "content": prompt}]}
+                )
+                outreach_msg = res.json()["content"][0]["text"].strip().strip('"')
+        except:
+            outreach_msg = f"Hi, I'm {name}. {outreach_template} — WorkBridge"
+    else:
+        outreach_msg = f"Hi, I'm {name}. {outreach_template} — WorkBridge"
+
+    # Live search for businesses
+    businesses = []
+    if GOOGLE_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                geo = await client.get(
+                    "https://maps.googleapis.com/maps/api/geocode/json",
+                    params={"address": zip_code, "key": GOOGLE_KEY}
+                )
+                if geo.json().get("results"):
+                    loc = geo.json()["results"][0]["geometry"]["location"]
+                    places = await client.get(
+                        "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+                        params={"location": f"{loc['lat']},{loc['lng']}",
+                                "radius": 8000, "keyword": category,
+                                "type": "establishment", "key": GOOGLE_KEY}
+                    )
+                    for r in places.json().get("results", [])[:15]:
+                        if r.get("place_id"):
+                            detail = await client.get(
+                                "https://maps.googleapis.com/maps/api/place/details/json",
+                                params={"place_id": r["place_id"],
+                                        "fields": "formatted_phone_number,name,formatted_address",
+                                        "key": GOOGLE_KEY}
+                            )
+                            result = detail.json().get("result", {})
+                            phone = result.get("formatted_phone_number", "")
+                            if phone:
+                                businesses.append({
+                                    "name": r.get("name", ""),
+                                    "phone": phone,
+                                    "address": result.get("formatted_address", r.get("vicinity", "")),
+                                    "rating": r.get("rating", 0),
+                                    "mission": mission
+                                })
+        except Exception as e:
+            print(f"Places error: {e}")
+
+    # Fallback — web search for resources
+    if not businesses and mission in ["housing", "education", "debt"]:
+        search_results = await web_search(f"{category} near {zip_code} {state} phone number")
+        return {
+            "businesses": [],
+            "outreach_message": outreach_msg,
+            "search_results": search_results,
+            "mission": mission,
+            "message": f"Found resources via search for {mission} near {zip_code}"
+        }
+
+    # Send SMS blast
+    conn = get_db()
+    u = conn.execute("SELECT * FROM users WHERE id=%s" if is_pg() else "SELECT * FROM users WHERE id=?",
+                     (user["id"],)).fetchone()
+
+    if not u or (u["credits"] if isinstance(u, dict) else u["credits"]) < 1:
+        conn.close()
+        return {"businesses": businesses, "outreach_message": outreach_msg,
+                "sent": 0, "message": "No credits — preview only"}
+
+    sent = 0
+    for biz in businesses[:10]:
+        phone_raw = biz.get("phone", "")
+        if not phone_raw: continue
+        phone = normalize_phone(phone_raw)
+        biz_name = biz.get("name", "Business")
+
+        if is_pg():
+            existing = conn.execute(
+                "SELECT id FROM conversations WHERE user_id=%s AND contact_phone=%s",
+                (user["id"], phone)).fetchone()
+        else:
+            existing = conn.execute(
+                "SELECT id FROM conversations WHERE user_id=? AND contact_phone=?",
+                (user["id"], phone)).fetchone()
+
+        if existing:
+            conv_id = existing["id"] if isinstance(existing, dict) else existing[0]
+        else:
+            if is_pg():
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO conversations (user_id,contact_phone,contact_name,contact_company,last_message,last_message_at) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+                    (user["id"], phone, biz_name, biz_name, outreach_msg, datetime.utcnow().isoformat()))
+                conv_id = cur.fetchone()[0]
+            else:
+                cur = conn.execute(
+                    "INSERT INTO conversations (user_id,contact_phone,contact_name,contact_company,last_message,last_message_at) VALUES (?,?,?,?,?,?)",
+                    (user["id"], phone, biz_name, biz_name, outreach_msg, datetime.utcnow().isoformat()))
+                conv_id = cur.lastrowid
+
+        sid = await send_sms(phone, outreach_msg)
+        if is_pg():
+            conn.execute(
+                "INSERT INTO messages (conversation_id,user_id,direction,body,from_number,to_number,twilio_sid) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (conv_id, user["id"], "outbound", outreach_msg, TWILIO_FROM or "WorkBridge", phone, sid or ""))
+        else:
+            conn.execute(
+                "INSERT INTO messages (conversation_id,user_id,direction,body,from_number,to_number,twilio_sid) VALUES (?,?,?,?,?,?,?)",
+                (conv_id, user["id"], "outbound", outreach_msg, TWILIO_FROM or "WorkBridge", phone, sid or ""))
+        if sid: sent += 1
+
+    if sent > 0:
+        if is_pg():
+            conn.execute("UPDATE users SET credits=credits-%s WHERE id=%s", (sent, user["id"]))
+        else:
+            conn.execute("UPDATE users SET credits=credits-? WHERE id=?", (sent, user["id"]))
+
+    if is_pg():
+        new_bal = conn.execute("SELECT credits FROM users WHERE id=%s", (user["id"],)).fetchone()
+    else:
+        new_bal = conn.execute("SELECT credits FROM users WHERE id=?", (user["id"],)).fetchone()
+
+    credits_left = new_bal["credits"] if isinstance(new_bal, dict) else new_bal[0]
+    conn.commit(); conn.close()
+
+    confirm = {
+        "en": f"✅ Sent to {sent} {mission} providers near {zip_code}! Watching for replies.",
+        "es": f"✅ ¡Enviado a {sent} proveedores cerca de {zip_code}! Esperando respuestas.",
+    }
+
+    return {
+        "businesses": businesses,
+        "businesses_found": len(businesses),
+        "messages_sent": sent,
+        "credits_remaining": credits_left,
+        "outreach_message": outreach_msg,
+        "mission": mission,
+        "user_confirmation": confirm.get(language, confirm["en"])
+    }
