@@ -566,7 +566,7 @@ export default function Dashboard(){
     const lang = localStorage.getItem('wb_lang')||'en'
     setMsgs(m=>[...m,{r:'a',c:lang==='es'?'📤 Buscando empresas y enviando tu mensaje ahora...':'📤 Finding local businesses and firing off your messages now...'}])
     try{
-      const res = await fetch(`${API}/coach/agent-search`,{
+      const res = await fetch(`${API}/coach/mission-search`,{
         method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
         body:JSON.stringify({
