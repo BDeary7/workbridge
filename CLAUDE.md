@@ -1,11 +1,12 @@
 # CLAUDE.md — WorkBridge Master Reference
-# Updated: May 26, 2026 | READ FIRST every session
+# Updated: May 27, 2026 | READ FIRST every session
 
-## LIVE URLS
-workbridgesms.com | workbridge-api.onrender.com | workbridgesms.com/casemgr (PIN: WB2026OC)
+## URLS
+workbridgesms.com | workbridge-api.onrender.com | /casemgr (PIN: WB2026OC)
 
 ## STATUS — ALL GREEN
-Backend v3.0 | PostgreSQL | PWA | Placement Tracking | Case Manager Portal | Mission Search
+Backend v3.0 | PostgreSQL | PWA | Placement Tracking | Case Manager | Mission Search
+Spanish Onboarding | SMS-only Mode | VetBridge | Coach Ray Heavy Lifting ✅
 
 ## 5 REVENUE STREAMS
 1. SMS credits ($0.10/msg)
@@ -14,13 +15,28 @@ Backend v3.0 | PostgreSQL | PWA | Placement Tracking | Case Manager Portal | Mis
 4. County contracts — $396,899 pitch sent
 5. Placement success fee ($50-200/hire)
 
-## NEXT SESSION — BUILD IN ORDER
-1. Spanish-first mobile onboarding (app/onboarding/page.tsx exists — needs Spanish + Hugo flow)
-2. SMS-only mode (text JOIN → Coach Ray guides via SMS, no app needed)
-3. HMIS/CalJOBS integration
-4. CareerForce employer portal
-5. Credit repair mission (11th mission)
-6. Agency white-label portal
+## COACH RAY — ALL 10 MISSIONS NOW ACTIVE
+Each mission: live web search → personalized outreach → SMS blast → document generation
+job ✅ | veteran ✅ | education ✅ | housing ✅ | home ✅
+senior ✅ | debt ✅ | vehicle ✅ | chores ✅ | business ✅
+
+Documents generated per mission:
+- job: Interview Prep, Negotiation Script, Credential Roadmap, Follow-Up Templates
+- education: GED Study Plan, Credential Roadmap
+- housing: Housing Application Cover Letter
+- debt: Hardship Letter, Debt Payoff Plan
+- veteran: VA Benefits Summary
+
+## SMS-ONLY MODE
+Text JOIN/HOLA/TRABAJO → auto-registers → Coach Ray guides via SMS
+STOP → unsubscribe
+
+## NEXT BUILDS
+1. HMIS/CalJOBS integration
+2. CareerForce employer portal
+3. Credit repair (11th mission)
+4. Agency white-label portal
+5. Auto follow-up scheduler (3-day cron)
 
 ## KEY CONTACTS
 Matthew Perez: matthew.perez@ocworkforcesolutions.com — Case Manager Portal
@@ -39,17 +55,6 @@ Joshua: OC Workforce — gave 14 staffing agency list
 /credits/purchase|webhook|balance|/dev/add-credits
 /ws/{token}|/health
 
-## CASE MANAGER PORTAL
-URL: workbridgesms.com/casemgr | PIN: WB2026OC
-Give to: Matthew Perez, Joshua, any OC social worker
-
-## 14 OC STAFFING AGENCIES (in backend /coach/staffing-agencies)
-Robert Half|Ultimate Staffing|East Ridge|Express Employment|Action Resource
-West Coast Staffing|Vault Workforce|Staff Seekers|Kimco|Tony Beare
-Pirate Staffing|Staffing Solutions|PeopleReady|AMP Staffing
-
-## COLORS: amber=#F59E0B green=#10B981 dark=#080C12 white=#F0F4F8
-
 ## DEPLOY
 cd ~/Desktop/workbridge/workbridge
 git add -A && git commit -m "msg" && git push origin main
@@ -59,8 +64,9 @@ curl https://workbridge-api.onrender.com/health
 - mkdir -p before cat > for nested files
 - iOS Safari: -webkit-text-fill-color for inputs
 - useSearchParams needs Suspense in Next.js
-- Never vercel.json with Next.js
-- Nested backticks break TypeScript
-- Python 3.14 no backslash in f-strings
-- Twilio webhook needs GET+POST both 200
+- Never vercel.json with Next.js app router
+- Nested backticks break TypeScript build
+- Python 3.14: no backslash in f-strings
+- Twilio webhook needs GET + POST both 200
+- Mixed ? and %s crashes PostgreSQL — always use is_pg() helper
 - Always read existing files before replacing
