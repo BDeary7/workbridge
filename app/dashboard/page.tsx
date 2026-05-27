@@ -505,17 +505,34 @@ export default function Dashboard(){
         setGedMode(true)
         setGedSubject('')
       } else if(snapMission==='job'){
-        helpMsg = `While you wait, let me write your outreach message right now. What is the main type of work you are looking for? I will craft something strong you can send today.`
+        helpMsg = `✅ Profile saved! Now let me write your outreach message.\n\nI am searching for employers hiring near ${snapAnswers.zip_code||'your area'} right now and will draft your personalized SMS.\n\nWhat is the main type of work you are looking for? I will craft something strong you can send today.`
+
       } else if(snapMission==='veteran'){
-        helpMsg = `While you wait, here are your top 3 action items:\n\n1. File VA disability claim — even 10% = $165/month tax-free\n2. Check VA home loan — zero down payment\n3. Review GI Bill education benefits\n\nWhich would you like help with first?`
+        helpMsg = `🎖️ Thank you for your service. Let me pull your benefits right now.\n\nHere is what I am checking for you:\n\n1. 🩺 VA Disability Claim — do you have a rating on file?\n2. 🎓 GI Bill / Voc Rehab (Ch. 31) — education + training benefits\n3. 🏠 VA Home Loan — zero down payment eligibility\n4. 💼 Veteran-preference federal jobs on USAJOBS\n\nWhat is your MOS / job code from service? I will translate it to civilian jobs and start your outreach immediately.`
+
       } else if(snapMission==='housing'){
-        helpMsg = `While you wait — text 211 right now for same-day emergency housing in your area. Also check HUD.gov/find-shelter. What is most urgent tonight?`
+        helpMsg = `🏠 I am searching for housing resources near ${snapAnswers.zip_code||'your ZIP'} right now.\n\nHere is what Coach Ray is pulling for you:\n\n📞 Text 211 — same-day emergency shelter referrals\n🏢 Section 8 / HCV voucher office in your county\n🤝 Transitional housing + sober living options\n💰 Emergency rental assistance (ERAP funds)\n\nIs this for tonight (emergency) or longer-term stable housing? I will tailor the outreach message Coach Ray sends on your behalf.`
+
       } else if(snapMission==='home'){
-        helpMsg = `While you wait, can you describe the problem in more detail? The more I know, the better I can prepare the pro who contacts you.`
+        helpMsg = `🔧 Got it. Before I connect you with a contractor, Coach Ray verifies credentials first — no unlicensed workers.\n\nHere is what I am checking:\n✅ CSLB license status (California contractors)\n✅ BBB rating + complaints\n✅ Insurance verification\n\nDescribe the problem in detail — is it plumbing, electrical, roofing, HVAC, or general repair? I will match you with the right licensed pro and draft your service request.`
+
       } else if(snapMission==='debt'){
-        helpMsg = `While you wait:\n\n1. IRS Fresh Start reduces tax debt\n2. NFCC.org offers free credit counseling\n3. Veterans may qualify for debt forgiveness\n\nWhich type of debt is most pressing?`
+        helpMsg = `💳 I am pulling debt relief resources for ${snapAnswers.state||'your state'} right now.\n\nCoach Ray is checking:\n\n🏛️ IRS Fresh Start — tax debt reduction program\n📋 NFCC certified counselors — FREE in your area\n⚖️ Debt Management Plans — reduce interest rates\n🎖️ Veteran debt forgiveness programs\n\nWhat type of debt is most urgent? (credit cards / medical / tax / student loans / collections) I will draft your hardship letter today.`
+
+      } else if(snapMission==='senior'){
+        helpMsg = `👴 I am searching for senior care options near ${snapAnswers.zip_code||'your area'} right now.\n\nCoach Ray is pulling:\n\n🏡 Licensed assisted living facilities\n🧠 Memory care / dementia specialist facilities\n🏠 In-home care agencies + cost estimates\n💊 Adult day programs + respite care\n💰 Medi-Cal / Medicare coverage options\n\nIs this for a parent, spouse, or yourself? And is in-home care preferred or a facility? I will draft the inquiry letters and send them today.`
+
+      } else if(snapMission==='vehicle'){
+        helpMsg = `🚗 I am searching for vehicle options near ${snapAnswers.zip_code||'your area'} right now.\n\nCoach Ray is checking:\n\n⭐ USAA car buying program (military/veterans — best pricing)\n🏪 CarMax / AutoNation — no-haggle certified pre-owned\n💳 Buy-here-pay-here dealers for credit challenges\n📊 Fair market value for your target vehicle\n\nWhat type of vehicle are you looking for and what is your budget range? I will find options and draft your inquiry messages.`
+
+      } else if(snapMission==='chores'){
+        helpMsg = `🧹 I am finding vetted home service providers near ${snapAnswers.zip_code||'your area'} right now.\n\nCoach Ray is pulling:\n\n✅ Background-checked cleaning services\n🌿 Licensed lawn care + landscaping\n🔨 Handyman services for small repairs\n📦 Moving + hauling help\n\nWhat services do you need most urgently? I will compare pricing, check reviews, and draft your booking request today.`
+
+      } else if(snapMission==='business'){
+        helpMsg = `💼 I am pulling qualified candidates from the WorkBridge job seeker pool right now.\n\nHere is what Coach Ray is doing for you:\n\n👥 Matching candidates to your job requirements\n📋 Screening based on skills + availability\n📱 Drafting your job posting SMS for rapid outreach\n📅 Setting up interview batch scheduling\n\nWhat position do you need to fill and when do you need someone to start? I will send outreach to matched candidates today.`
+
       } else {
-        helpMsg = `I am here to help you right now while you wait. What is the most urgent thing I can assist you with today?`
+        helpMsg = `I am pulling resources for your area right now. What is the single most urgent thing I can help you with today?`
       }
       if(helpMsg){
         setMsgs(m=>[...m,{r:'a',c:helpMsg}])
