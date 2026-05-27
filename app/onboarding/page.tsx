@@ -3,53 +3,103 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
 const API = 'https://workbridge-api.onrender.com'
-const amber = '#F59E0B'
-const green = '#10B981'
-const dark = '#080C12'
-const white = '#F0F4F8'
+const A='#F59E0B', G='#10B981', D='#080C12', W='#F0F4F8'
+
+const T = {
+  en: {
+    welcome_title: "Welcome to WorkBridge",
+    welcome_sub: "Find work. No resume needed. Just a text.",
+    choose_lang: "Choose your language",
+    hey: "Hey",
+    coach_intro: "I'm Coach Ray — your personal AI job specialist.",
+    coach_power: "I have access to 33 million businesses across all 50 states. I text them for you.",
+    coach_ask: "What can I help you with today?",
+    coach_select: "Select everything that applies — I'll activate a specialist for each one.",
+    ready: "Let's Go →",
+    select_one: "Select at least one",
+    adding: "Setting up your dashboard...",
+    more: "You can add more missions anytime from your dashboard",
+    great: "Great choice! I'm activating your",
+    perfect: "Perfect! I'm activating",
+    specialists: "specialists for you. I'll prioritize your most urgent need first. Ready?",
+  },
+  es: {
+    welcome_title: "Bienvenido a WorkBridge",
+    welcome_sub: "Encuentra trabajo. Sin currículum. Solo un mensaje.",
+    choose_lang: "Elige tu idioma",
+    hey: "¡Hola",
+    coach_intro: "Soy Coach Ray — tu especialista personal de empleo con IA.",
+    coach_power: "Tengo acceso a 33 millones de empresas en los 50 estados. Les envío mensajes por ti.",
+    coach_ask: "¿En qué puedo ayudarte hoy?",
+    coach_select: "Selecciona todo lo que aplique — activaré un especialista para cada uno.",
+    ready: "¡Vamos! →",
+    select_one: "Selecciona al menos uno",
+    adding: "Configurando tu panel...",
+    more: "Puedes agregar más misiones desde tu panel en cualquier momento",
+    great: "¡Excelente! Estoy activando tu especialista de",
+    perfect: "¡Perfecto! Estoy activando",
+    specialists: "especialistas para ti. Priorizaré tu necesidad más urgente primero. ¿Listo?",
+  }
+}
 
 const MISSIONS = [
-  {id:'job', icon:'🔍', label:'Find a Job', desc:'Get hired fast — no resume needed'},
-  {id:'veteran', icon:'⭐', label:'Veterans Hub', desc:'VA benefits, refi, disability, home buying'},
-  {id:'housing', icon:'🔑', label:'Find Housing', desc:'Rentals, Section 8, emergency housing'},
-  {id:'debt', icon:'💰', label:'Debt and Tax Relief', desc:'Tax breaks, debt relief, counseling'},
-  {id:'education', icon:'📚', label:'Get Educated', desc:'GED, trade school, college, apprenticeships'},
-  {id:'home', icon:'🔧', label:'Home Services', desc:'Plumber, electrician, handyman'},
-  {id:'senior', icon:'👴', label:'Senior Care', desc:'In-home care, assisted living, memory care'},
-  {id:'vehicle', icon:'🚗', label:'Buy a Vehicle', desc:'Military deals, USAA, civilian purchases'},
-  {id:'chores', icon:'🧹', label:'Household Help', desc:'Cleaning, lawn care, home services'},
-  {id:'business', icon:'🏢', label:'I own a business — I need to hire', desc:'Post jobs, receive pre-qualified candidates'},
+  {id:'job',      icon:'🔍', en:'Find a Job',          es:'Buscar Trabajo',      desc_en:'Get hired fast — no resume needed',                desc_es:'Consigue trabajo rápido — sin currículum'},
+  {id:'veteran',  icon:'⭐', en:'Veterans Hub',         es:'Centro de Veteranos', desc_en:'VA benefits, refi, disability, home buying',        desc_es:'Beneficios VA, refinanciamiento, discapacidad'},
+  {id:'housing',  icon:'🔑', en:'Find Housing',         es:'Encontrar Vivienda',  desc_en:'Rentals, Section 8, emergency housing',             desc_es:'Rentas, Sección 8, vivienda de emergencia'},
+  {id:'debt',     icon:'💰', en:'Debt & Tax Relief',    es:'Alivio de Deudas',    desc_en:'Tax breaks, debt relief, counseling',               desc_es:'Reducción de impuestos, alivio de deudas'},
+  {id:'education',icon:'📚', en:'Get Educated',         es:'Educación',           desc_en:'GED, trade school, college, apprenticeships',       desc_es:'GED, escuela técnica, universidad'},
+  {id:'home',     icon:'🔧', en:'Home Services',        es:'Servicios del Hogar', desc_en:'Plumber, electrician, handyman',                    desc_es:'Plomero, electricista, reparaciones'},
+  {id:'senior',   icon:'👴', en:'Senior Care',          es:'Cuidado de Mayores',  desc_en:'In-home care, assisted living, memory care',        desc_es:'Cuidado en casa, vida asistida'},
+  {id:'vehicle',  icon:'🚗', en:'Buy a Vehicle',        es:'Comprar un Vehículo', desc_en:'Military deals, USAA, civilian purchases',          desc_es:'Ofertas militares, USAA, compras civiles'},
+  {id:'chores',   icon:'🧹', en:'Household Help',       es:'Ayuda en el Hogar',   desc_en:'Cleaning, lawn care, home services',                desc_es:'Limpieza, jardinería, servicios del hogar'},
+  {id:'business', icon:'🏢', en:'I Need to Hire',       es:'Necesito Contratar',  desc_en:'Post jobs, receive pre-qualified candidates',       desc_es:'Publicar empleos, recibir candidatos calificados'},
 ]
 
 export default function Onboarding() {
   const router = useRouter()
+  const [lang, setLang]         = useState<'en'|'es'>('en')
+  const [step, setStep]         = useState<'lang'|'welcome'|'select'>('lang')
   const [selected, setSelected] = useState<string[]>([])
-  const [step, setStep] = useState<'welcome'|'select'|'confirm'>('welcome')
-  const [loading, setLoading] = useState(false)
-  const [name, setName] = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [name, setName]         = useState('there')
+
+  const t = T[lang]
   const tok = () => typeof window !== 'undefined' ? localStorage.getItem('wb_token') : null
 
   useEffect(() => {
     if (!tok()) { router.push('/login'); return }
-    const done = localStorage.getItem('wb_onboarding_done')
-    if (done) { router.push('/dashboard'); return }
-    setName(localStorage.getItem('wb_name') || 'there')
-    setTimeout(() => setStep('select'), 2500)
+    if (localStorage.getItem('wb_onboarding_done')) { router.push('/dashboard'); return }
+    const n = localStorage.getItem('wb_name') || 'there'
+    setName(n)
+    const savedLang = localStorage.getItem('wb_language') || 'en'
+    if (savedLang === 'es') { setLang('es') }
   }, [])
 
-  const toggle = (id: string) => {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
+  const chooseLang = async (l: 'en'|'es') => {
+    setLang(l)
+    localStorage.setItem('wb_language', l)
+    try {
+      await fetch(`${API}/profile/update`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', Authorization:`Bearer ${tok()}`},
+        body: JSON.stringify({language: l})
+      })
+    } catch {}
+    setStep('welcome')
+    setTimeout(() => setStep('select'), 2200)
   }
+
+  const toggle = (id: string) =>
+    setSelected(s => s.includes(id) ? s.filter(x=>x!==id) : [...s, id])
 
   const handleContinue = async () => {
     if (selected.length === 0) return
     setLoading(true)
-    const token = tok()
     try {
       await fetch(`${API}/user/missions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ missions: selected })
+        headers: {'Content-Type':'application/json', Authorization:`Bearer ${tok()}`},
+        body: JSON.stringify({missions: selected})
       })
     } catch {}
     localStorage.setItem('wb_missions', JSON.stringify(selected))
@@ -58,124 +108,169 @@ export default function Onboarding() {
     setLoading(false)
   }
 
+  // ── LANGUAGE SELECTION SCREEN ─────────────────────────────────────────────
+  if (step === 'lang') return (
+    <div style={{fontFamily:'system-ui,sans-serif',background:D,color:W,
+      minHeight:'100vh',display:'flex',flexDirection:'column',
+      alignItems:'center',justifyContent:'center',padding:'40px 20px'}}>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        .langbtn{transition:all .2s;cursor:pointer}
+        .langbtn:hover{transform:scale(1.03)}`}
+      </style>
+      <div style={{textAlign:'center',marginBottom:40,animation:'fadeUp .5s ease'}}>
+        <div style={{fontSize:52,marginBottom:12}}>🌉</div>
+        <div style={{fontSize:26,fontWeight:900}}>Work<span style={{color:A}}>Bridge</span></div>
+      </div>
+      <div style={{fontSize:18,fontWeight:700,marginBottom:28,textAlign:'center',opacity:.8}}>
+        🌐 Choose your language / Elige tu idioma
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:16,width:'100%',maxWidth:360}}>
+        <button className="langbtn" onClick={()=>chooseLang('en')}
+          style={{padding:'22px 28px',borderRadius:16,border:`2px solid rgba(255,255,255,.15)`,
+            background:'rgba(255,255,255,.06)',color:W,cursor:'pointer',
+            display:'flex',alignItems:'center',gap:16,fontSize:18,fontWeight:700}}>
+          <span style={{fontSize:36}}>🇺🇸</span>
+          <div style={{textAlign:'left'}}>
+            <div style={{fontSize:20,fontWeight:900}}>English</div>
+            <div style={{fontSize:13,opacity:.6,fontWeight:400}}>Continue in English</div>
+          </div>
+        </button>
+        <button className="langbtn" onClick={()=>chooseLang('es')}
+          style={{padding:'22px 28px',borderRadius:16,border:`2px solid rgba(245,158,11,.4)`,
+            background:'rgba(245,158,11,.08)',color:W,cursor:'pointer',
+            display:'flex',alignItems:'center',gap:16,fontSize:18,fontWeight:700}}>
+          <span style={{fontSize:36}}>🇲🇽</span>
+          <div style={{textAlign:'left'}}>
+            <div style={{fontSize:20,fontWeight:900}}>Español</div>
+            <div style={{fontSize:13,opacity:.6,fontWeight:400,color:A}}>Continuar en Español</div>
+          </div>
+        </button>
+      </div>
+    </div>
+  )
+
+  // ── WELCOME + MISSION SELECT ──────────────────────────────────────────────
   return (
-    <div style={{fontFamily:'system-ui,sans-serif',background:dark,color:white,minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-start',padding:'40px 24px'}}>
+    <div style={{fontFamily:'system-ui,sans-serif',background:D,color:W,
+      minHeight:'100vh',display:'flex',flexDirection:'column',
+      alignItems:'center',padding:'32px 20px'}}>
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0}
         @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
         @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
         .bubble{animation:fadeUp 0.4s ease forwards}
-        .opt:hover{border-color:${amber}!important;background:rgba(245,158,11,0.08)!important;cursor:pointer}
+        .opt:active{transform:scale(0.98)}
       `}</style>
 
-      <div style={{width:'100%',maxWidth:600}}>
-        {/* WorkBridge logo */}
-        <div style={{fontSize:22,fontWeight:900,marginBottom:32,textAlign:'center'}}>
-          Work<span style={{color:amber}}>Bridge</span>
+      <div style={{width:'100%',maxWidth:560}}>
+        <div style={{fontSize:22,fontWeight:900,marginBottom:28,textAlign:'center'}}>
+          Work<span style={{color:A}}>Bridge</span>
         </div>
 
-        {/* Coach Ray avatar + speech */}
-        <div style={{display:'flex',gap:14,alignItems:'flex-start',marginBottom:24}}>
-          <div style={{width:48,height:48,borderRadius:'50%',background:`linear-gradient(135deg,${green},#059669)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0,boxShadow:`0 0 20px rgba(16,185,129,0.3)`}}>
+        <div style={{display:'flex',gap:14,alignItems:'flex-start',marginBottom:20}}>
+          <div style={{width:52,height:52,borderRadius:'50%',flexShrink:0,
+            background:`linear-gradient(135deg,${G},#059669)`,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            fontSize:24,boxShadow:`0 0 20px rgba(16,185,129,.3)`}}>
             🤖
           </div>
           <div>
-            {/* Bubble 1 — always shown */}
-            <div className="bubble" style={{background:'rgba(255,255,255,0.07)',borderRadius:'4px 16px 16px 16px',padding:'14px 18px',fontSize:15,lineHeight:1.7,marginBottom:10,maxWidth:480}}>
-              Hey {name}! 👋 I am <strong style={{color:green}}>Coach Ray</strong> — your personal AI specialist here at WorkBridge.
+            <div className="bubble" style={{background:'rgba(255,255,255,.07)',
+              borderRadius:'4px 18px 18px 18px',padding:'16px 20px',
+              fontSize:16,lineHeight:1.7,marginBottom:10,maxWidth:460}}>
+              {t.hey} <strong>{name}</strong>! 👋 {t.coach_intro}
             </div>
-
-            {/* Bubble 2 */}
-            <div className="bubble" style={{background:'rgba(255,255,255,0.07)',borderRadius:'4px 16px 16px 16px',padding:'14px 18px',fontSize:15,lineHeight:1.7,marginBottom:10,maxWidth:480,animationDelay:'0.3s',opacity:0}}>
-              I have access to <strong style={{color:amber}}>33 million businesses</strong> across all 50 states — and I can text them on your behalf in seconds.
+            <div className="bubble" style={{background:'rgba(255,255,255,.07)',
+              borderRadius:'4px 18px 18px 18px',padding:'16px 20px',
+              fontSize:16,lineHeight:1.7,marginBottom:10,maxWidth:460,
+              animationDelay:'.3s',opacity:0}}>
+              {t.coach_power}
             </div>
-
-            {/* Bubble 3 — shows after delay */}
             {step === 'select' && (
-              <div className="bubble" style={{background:`rgba(245,158,11,0.1)`,border:`1px solid rgba(245,158,11,0.3)`,borderRadius:'4px 16px 16px 16px',padding:'14px 18px',fontSize:15,lineHeight:1.7,marginBottom:20,maxWidth:480}}>
-                <strong style={{color:amber}}>What can I help you with today?</strong><br/>
-                <span style={{color:'#F0F4F8',fontSize:13}}>Select everything that applies — I will activate a specialist for each one.</span>
+              <div className="bubble" style={{background:`rgba(245,158,11,.1)`,
+                border:`1px solid rgba(245,158,11,.3)`,
+                borderRadius:'4px 18px 18px 18px',padding:'16px 20px',
+                fontSize:16,lineHeight:1.7,marginBottom:20,maxWidth:460}}>
+                <strong style={{color:A}}>{t.coach_ask}</strong><br/>
+                <span style={{fontSize:14,opacity:.8}}>{t.coach_select}</span>
               </div>
             )}
-
             {step === 'welcome' && (
               <div style={{display:'flex',gap:6,paddingLeft:4,paddingTop:4}}>
                 {[0,1,2].map(i=>(
-                  <div key={i} style={{width:8,height:8,borderRadius:'50%',background:green,animation:`blink 1.2s ${i*0.2}s infinite`}}/>
+                  <div key={i} style={{width:10,height:10,borderRadius:'50%',
+                    background:G,animation:`blink 1.2s ${i*.2}s infinite`}}/>
                 ))}
               </div>
             )}
           </div>
         </div>
 
-        {/* Mission Options as speech-bubble style buttons */}
         {step === 'select' && (
-          <div style={{paddingLeft:62}}>
-            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:24}}>
+          <div style={{paddingLeft:0}}>
+            <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:24}}>
               {MISSIONS.map((m,i) => {
-                const isSelected = selected.includes(m.id)
+                const sel = selected.includes(m.id)
+                const label = lang==='es' ? m.es : m.en
+                const desc  = lang==='es' ? m.desc_es : m.desc_en
                 return (
-                  <div key={m.id} className="opt"
-                    onClick={() => toggle(m.id)}
-                    style={{
-                      display:'flex',alignItems:'center',gap:12,
-                      padding:'12px 16px',borderRadius:12,
-                      border:`1.5px solid ${isSelected ? m.color || amber : 'rgba(255,255,255,0.1)'}`,
-                      background: isSelected ? `rgba(245,158,11,0.08)` : 'rgba(255,255,255,0.03)',
-                      transition:'all 0.15s',
-                      animation:`fadeUp 0.3s ${i*0.05}s ease forwards`,
-                      opacity:0
-                    }}>
-                    <span style={{fontSize:20,flexShrink:0}}>{m.icon}</span>
+                  <div key={m.id} className="opt" onClick={()=>toggle(m.id)}
+                    style={{display:'flex',alignItems:'center',gap:14,
+                      padding:'16px 18px',borderRadius:14,cursor:'pointer',
+                      border:`2px solid ${sel?A:'rgba(255,255,255,.1)'}`,
+                      background:sel?`rgba(245,158,11,.08)`:'rgba(255,255,255,.03)',
+                      transition:'all .15s',
+                      animation:`fadeUp .3s ${i*.04}s ease forwards`,opacity:0}}>
+                    <span style={{fontSize:26,flexShrink:0}}>{m.icon}</span>
                     <div style={{flex:1}}>
-                      <div style={{fontWeight:700,fontSize:14,color: isSelected ? amber : white}}>{m.label}</div>
-                      <div style={{fontSize:12,color:'#F0F4F8',marginTop:2}}>{m.desc}</div>
+                      <div style={{fontWeight:800,fontSize:15,color:sel?A:W}}>{label}</div>
+                      <div style={{fontSize:13,color:'rgba(240,244,248,.65)',marginTop:3}}>{desc}</div>
                     </div>
-                    <div style={{
-                      width:20,height:20,borderRadius:'50%',flexShrink:0,
-                      border:`2px solid ${isSelected ? amber : 'rgba(255,255,255,0.2)'}`,
-                      background: isSelected ? amber : 'transparent',
+                    <div style={{width:24,height:24,borderRadius:'50%',flexShrink:0,
+                      border:`2px solid ${sel?A:'rgba(255,255,255,.25)'}`,
+                      background:sel?A:'transparent',
                       display:'flex',alignItems:'center',justifyContent:'center',
-                      fontSize:11,color:dark,fontWeight:900,transition:'all 0.15s'
-                    }}>
-                      {isSelected ? '✓' : ''}
+                      fontSize:13,color:D,fontWeight:900,transition:'all .15s'}}>
+                      {sel?'✓':''}
                     </div>
                   </div>
                 )
               })}
             </div>
 
-            {/* Coach Ray response based on selection */}
             {selected.length > 0 && (
               <div style={{display:'flex',gap:14,alignItems:'flex-start',marginBottom:20}}>
-                <div style={{width:48,height:48,borderRadius:'50%',background:`linear-gradient(135deg,${green},#059669)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>
+                <div style={{width:52,height:52,borderRadius:'50%',flexShrink:0,
+                  background:`linear-gradient(135deg,${G},#059669)`,
+                  display:'flex',alignItems:'center',justifyContent:'center',fontSize:24}}>
                   🤖
                 </div>
-                <div className="bubble" style={{background:'rgba(16,185,129,0.1)',border:'1px solid rgba(16,185,129,0.3)',borderRadius:'4px 16px 16px 16px',padding:'14px 18px',fontSize:14,lineHeight:1.7,maxWidth:480}}>
-                  {selected.length === 1 ? (
-                    <>Great choice! I am activating your <strong style={{color:green}}>{MISSIONS.find(m=>m.id===selected[0])?.label}</strong> specialist right now. Ready to get started?</>
-                  ) : (
-                    <>Perfect! I am activating <strong style={{color:green}}>{selected.length} specialists</strong> for you — {selected.map(id => MISSIONS.find(m=>m.id===id)?.icon).join(' ')}. I will prioritize your most urgent need first. Ready?</>
-                  )}
+                <div className="bubble" style={{background:'rgba(16,185,129,.1)',
+                  border:'1px solid rgba(16,185,129,.3)',
+                  borderRadius:'4px 18px 18px 18px',padding:'16px 20px',
+                  fontSize:15,lineHeight:1.7,maxWidth:460}}>
+                  {selected.length===1
+                    ? <>{t.great} <strong style={{color:G}}>{lang==='es'?MISSIONS.find(m=>m.id===selected[0])?.es:MISSIONS.find(m=>m.id===selected[0])?.en}</strong>! ✅</>
+                    : <>{t.perfect} <strong style={{color:G}}>{selected.length}</strong> {t.specialists} {selected.map(id=>MISSIONS.find(m=>m.id===id)?.icon).join(' ')}</>
+                  }
                 </div>
               </div>
             )}
 
-            {/* Continue button */}
             <button onClick={handleContinue}
-              disabled={loading || selected.length === 0}
-              style={{
-                width:'100%',padding:'16px',borderRadius:12,border:'none',
-                background: selected.length > 0 ? `linear-gradient(135deg,${amber},#D97706)` : 'rgba(255,255,255,0.07)',
-                color: selected.length > 0 ? dark : 'rgba(240,244,248,0.75)',
-                fontWeight:900,fontSize:16,cursor: selected.length > 0 ? 'pointer' : 'not-allowed',
-                transition:'all 0.2s'
-              }}>
-              {loading ? 'Setting up your dashboard...' : selected.length === 0 ? 'Select at least one mission' : `Let's Go — Activate My Mission${selected.length > 1 ? 's' : ''} →`}
+              disabled={loading||selected.length===0}
+              style={{width:'100%',padding:'18px',borderRadius:14,border:'none',
+                background:selected.length>0?`linear-gradient(135deg,${A},#D97706)`:'rgba(255,255,255,.07)',
+                color:selected.length>0?D:'rgba(240,244,248,.5)',
+                fontWeight:900,fontSize:17,
+                cursor:selected.length>0?'pointer':'not-allowed',
+                transition:'all .2s',marginBottom:12}}>
+              {loading?t.adding:selected.length===0?t.select_one:t.ready}
             </button>
 
-            <p style={{textAlign:'center',marginTop:12,fontSize:12,color:'rgba(240,244,248,0.75)'}}>
-              You can add more missions anytime from your dashboard
+            <p style={{textAlign:'center',fontSize:12,color:'rgba(240,244,248,.5)'}}>
+              {t.more}
             </p>
           </div>
         )}
