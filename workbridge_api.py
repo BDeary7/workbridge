@@ -171,6 +171,15 @@ def init_db():
             created_at TEXT,
             updated_at TEXT
         )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS ged_scores (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            subject TEXT NOT NULL,
+            score_pct INTEGER,
+            weak_concepts TEXT,
+            taken_at TEXT
+        )""")
         conn.commit()
         cur.close()
         conn.close()
@@ -2131,3 +2140,182 @@ async def agency_client_detail(client_id: int, user=Depends(get_user)):
         "total_contacted": len(conversations),
         "total_replied": len([c for c in conversations if (c["status"] if isinstance(c, dict) else c[5]) == "replied"])
     }
+
+# ── GED TUTORING ENGINE ────────────────────────────────────────────────────────
+
+GED_QUESTIONS = {
+    "math": [
+        {"q":"What is 15% of 200?","options":["25","30","35","40"],"answer":"30","concept":"Percentages"},
+        {"q":"Solve for x: 3x + 7 = 22","options":["3","4","5","6"],"answer":"5","concept":"Algebra"},
+        {"q":"A triangle has sides 3, 4, and 5. Is it a right triangle?","options":["Yes","No","Cannot determine","Only if angles match"],"answer":"Yes","concept":"Geometry"},
+        {"q":"What is the area of a rectangle with length 8 and width 5?","options":["13","26","40","45"],"answer":"40","concept":"Geometry"},
+        {"q":"If a car travels 60 mph for 2.5 hours, how far does it travel?","options":["120 miles","150 miles","180 miles","200 miles"],"answer":"150 miles","concept":"Word Problems"},
+        {"q":"What is the median of: 3, 7, 9, 2, 5?","options":["3","5","7","9"],"answer":"5","concept":"Statistics"},
+        {"q":"Simplify: 4² + 3²","options":["25","49","14","7"],"answer":"25","concept":"Exponents"},
+        {"q":"What is 3/4 + 1/2?","options":["4/6","5/4","1 1/4","2/3"],"answer":"1 1/4","concept":"Fractions"},
+        {"q":"A store sells shirts for $25 each. With a 20% discount, what is the sale price?","options":["$15","$18","$20","$22"],"answer":"$20","concept":"Percentages"},
+        {"q":"What is the slope of a line passing through (0,0) and (4,8)?","options":["0.5","1","2","4"],"answer":"2","concept":"Algebra"},
+    ],
+    "rla": [
+        {"q":"Which sentence is grammatically correct?","options":["Him and me went to the store","He and I went to the store","Him and I went to the store","He and me went to the store"],"answer":"He and I went to the store","concept":"Grammar"},
+        {"q":"What does the word 'benevolent' mean?","options":["Hostile","Kind and generous","Confused","Powerful"],"answer":"Kind and generous","concept":"Vocabulary"},
+        {"q":"Which punctuation correctly completes: 'I have three pets__ a dog, a cat, and a fish'","options":[",",";",":","—"],"answer":":","concept":"Punctuation"},
+        {"q":"What is the main purpose of a thesis statement?","options":["To summarize the conclusion","To state the main argument","To list supporting details","To introduce the author"],"answer":"To state the main argument","concept":"Writing"},
+        {"q":"Which word is a conjunction?","options":["Quickly","Beautiful","Although","Jumped"],"answer":"Although","concept":"Grammar"},
+        {"q":"What does 'inference' mean in reading?","options":["A direct quote from the text","A conclusion drawn from evidence","A summary of the passage","The main character's goal"],"answer":"A conclusion drawn from evidence","concept":"Reading Comprehension"},
+        {"q":"Which sentence uses correct subject-verb agreement?","options":["The team are winning","The team is winning","The teams is winning","The team were winning"],"answer":"The team is winning","concept":"Grammar"},
+        {"q":"What is the purpose of a topic sentence?","options":["To end a paragraph","To introduce the main idea of a paragraph","To provide evidence","To transition between ideas"],"answer":"To introduce the main idea of a paragraph","concept":"Writing"},
+        {"q":"Which is an example of a compound sentence?","options":["The dog ran fast","She studied hard, and she passed the test","Running through the park","Because it was raining"],"answer":"She studied hard, and she passed the test","concept":"Sentence Structure"},
+        {"q":"What does 'context clues' mean?","options":["Words that rhyme","Hints in the text that help define a word","The author's biography","The table of contents"],"answer":"Hints in the text that help define a word","concept":"Vocabulary"},
+    ],
+    "science": [
+        {"q":"What is the powerhouse of the cell?","options":["Nucleus","Ribosome","Mitochondria","Cell membrane"],"answer":"Mitochondria","concept":"Biology"},
+        {"q":"What is the chemical symbol for water?","options":["WO","H2O","HO2","W2O"],"answer":"H2O","concept":"Chemistry"},
+        {"q":"What force keeps planets in orbit around the sun?","options":["Magnetism","Friction","Gravity","Electricity"],"answer":"Gravity","concept":"Physics"},
+        {"q":"Which of the following is NOT a renewable energy source?","options":["Solar","Wind","Coal","Hydropower"],"answer":"Coal","concept":"Earth Science"},
+        {"q":"What process do plants use to make food from sunlight?","options":["Respiration","Fermentation","Photosynthesis","Digestion"],"answer":"Photosynthesis","concept":"Biology"},
+        {"q":"What is the atomic number of Carbon?","options":["6","8","12","14"],"answer":"6","concept":"Chemistry"},
+        {"q":"What layer of Earth do we live on?","options":["Mantle","Core","Crust","Magma"],"answer":"Crust","concept":"Earth Science"},
+        {"q":"What is Newton's First Law?","options":["F=ma","Objects in motion stay in motion unless acted on by force","Energy cannot be created or destroyed","Every action has an equal reaction"],"answer":"Objects in motion stay in motion unless acted on by force","concept":"Physics"},
+        {"q":"DNA is found in which part of the cell?","options":["Cytoplasm","Cell wall","Nucleus","Ribosome"],"answer":"Nucleus","concept":"Biology"},
+        {"q":"What is the pH of pure water?","options":["0","7","10","14"],"answer":"7","concept":"Chemistry"},
+    ],
+    "social_studies": [
+        {"q":"Who wrote the Declaration of Independence?","options":["George Washington","Benjamin Franklin","Thomas Jefferson","John Adams"],"answer":"Thomas Jefferson","concept":"US History"},
+        {"q":"What year did the United States declare independence?","options":["1765","1776","1783","1787"],"answer":"1776","concept":"US History"},
+        {"q":"What is the supreme law of the United States?","options":["The Bill of Rights","The Declaration of Independence","The Constitution","The Federalist Papers"],"answer":"The Constitution","concept":"Civics"},
+        {"q":"Which branch of government makes laws?","options":["Executive","Judicial","Legislative","Administrative"],"answer":"Legislative","concept":"Civics"},
+        {"q":"What economic system is based on supply and demand?","options":["Communism","Capitalism","Socialism","Feudalism"],"answer":"Capitalism","concept":"Economics"},
+        {"q":"What was the primary cause of the Civil War?","options":["Taxation","Slavery","Land disputes","Foreign invasion"],"answer":"Slavery","concept":"US History"},
+        {"q":"What does GDP stand for?","options":["General Data Production","Gross Domestic Product","Government Data Plan","Global Development Policy"],"answer":"Gross Domestic Product","concept":"Economics"},
+        {"q":"Which amendment abolished slavery?","options":["13th","14th","15th","19th"],"answer":"13th","concept":"US History"},
+        {"q":"What is the role of the Supreme Court?","options":["Make laws","Enforce laws","Interpret laws","Collect taxes"],"answer":"Interpret laws","concept":"Civics"},
+        {"q":"Which continent has the most countries?","options":["Asia","Europe","Africa","South America"],"answer":"Africa","concept":"Geography"},
+    ]
+}
+
+@app.get("/coach/ged-test/{subject}")
+async def get_ged_test(subject: str, user=Depends(get_user)):
+    """Return GED mock test questions for a subject"""
+    subject = subject.lower().replace("-","_")
+    if subject not in GED_QUESTIONS:
+        raise HTTPException(400, f"Subject must be: math, rla, science, social_studies")
+    questions = GED_QUESTIONS[subject]
+    # Return questions without answers
+    return {
+        "subject": subject,
+        "total": len(questions),
+        "questions": [{"index":i,"q":q["q"],"options":q["options"]} for i,q in enumerate(questions)]
+    }
+
+@app.post("/coach/ged-score")
+async def score_ged_test(request: Request, user=Depends(get_user)):
+    """Score a completed GED mock test and identify weak areas"""
+    body = await request.json()
+    subject = body.get("subject","math").lower().replace("-","_")
+    answers = body.get("answers", {})  # {0: "answer", 1: "answer", ...}
+
+    if subject not in GED_QUESTIONS:
+        raise HTTPException(400, "Invalid subject")
+
+    questions = GED_QUESTIONS[subject]
+    results = []
+    weak_concepts = []
+    score = 0
+
+    for i, q in enumerate(questions):
+        user_answer = answers.get(str(i), answers.get(i, ""))
+        correct = user_answer == q["answer"]
+        if correct:
+            score += 1
+        else:
+            weak_concepts.append(q["concept"])
+        results.append({
+            "index": i,
+            "question": q["q"],
+            "your_answer": user_answer,
+            "correct_answer": q["answer"],
+            "correct": correct,
+            "concept": q["concept"]
+        })
+
+    pct = round((score / len(questions)) * 100)
+    weak_unique = list(dict.fromkeys(weak_concepts))  # deduplicated
+
+    # Generate tutoring plan for weak areas
+    tutoring_plan = []
+    if ANTHROPIC_KEY and weak_unique:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                prompt = f"""The student scored {pct}% on the GED {subject} section.
+Weak concepts: {', '.join(weak_unique)}
+
+For each weak concept, provide:
+1. A simple 2-sentence explanation
+2. One worked example
+3. A memory tip
+
+Keep it encouraging and practical. Under 400 words total."""
+                res = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
+                    json={"model":"claude-sonnet-4-20250514","max_tokens":600,
+                          "messages":[{"role":"user","content":prompt}]}
+                )
+                tutoring_plan = res.json()["content"][0]["text"]
+        except:
+            tutoring_plan = f"Focus on these areas: {', '.join(weak_unique)}"
+
+    # Save score to DB
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+    now = datetime.utcnow().isoformat()
+    try:
+        conn.execute(
+            f"INSERT INTO ged_scores (user_id, subject, score_pct, weak_concepts, taken_at) VALUES ({ph},{ph},{ph},{ph},{ph})",
+            (user["id"], subject, pct, ",".join(weak_unique), now)
+        )
+        conn.commit()
+    except:
+        pass
+    conn.close()
+
+    status = "🎉 Ready for the real GED!" if pct >= 75 else \
+             "📈 Getting close — keep practicing!" if pct >= 60 else \
+             "📚 Need more practice — Coach Ray will help!"
+
+    return {
+        "subject": subject,
+        "score": score,
+        "total": len(questions),
+        "percentage": pct,
+        "status": status,
+        "passed": pct >= 75,
+        "results": results,
+        "weak_concepts": weak_unique,
+        "tutoring_plan": tutoring_plan,
+        "next_step": "Take another subject test" if pct >= 75 else f"Study these concepts: {', '.join(weak_unique[:3])}"
+    }
+
+@app.get("/coach/ged-progress")
+async def ged_progress(user=Depends(get_user)):
+    """Get user's GED progress across all subjects"""
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+    try:
+        scores = conn.execute(
+            f"SELECT subject, score_pct, weak_concepts, taken_at FROM ged_scores WHERE user_id={ph} ORDER BY taken_at DESC",
+            (user["id"],)
+        ).fetchall()
+        conn.close()
+        by_subject = {}
+        for s in scores:
+            sub = s["subject"] if isinstance(s,dict) else s[0]
+            pct = s["score_pct"] if isinstance(s,dict) else s[1]
+            weak = s["weak_concepts"] if isinstance(s,dict) else s[2]
+            if sub not in by_subject:
+                by_subject[sub] = {"latest_score": pct, "weak_concepts": weak.split(",") if weak else [], "passed": pct >= 75}
+        return {"progress": by_subject, "subjects_passed": sum(1 for v in by_subject.values() if v["passed"]), "total_subjects": 4}
+    except:
+        conn.close()
+        return {"progress": {}, "subjects_passed": 0, "total_subjects": 4}
