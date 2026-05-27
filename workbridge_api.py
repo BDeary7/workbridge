@@ -638,21 +638,105 @@ async def inbound_webhook(request: Request):
     form = await request.form()
     from_number = form.get("From","")
     body = form.get("Body","").strip()
+    body_upper = body.upper()
     conn = get_db()
-    conv = conn.execute("SELECT * FROM conversations WHERE contact_phone=%s ORDER BY last_message_at DESC LIMIT 1",(from_number,)).fetchone()
-    if conv:
-        conn.execute("""INSERT INTO messages
-            (conversation_id,user_id,direction,body,from_number,to_number,status)
-            VALUES (?,?,?,?,?,?,?)""",(conv["id"],conv["user_id"],"inbound",body,from_number,TWILIO_FROM or "WorkBridge","received"))
-        conn.execute("""UPDATE conversations SET last_message=%s,last_message_at=%s,
-            unread_count=unread_count+1,status='replied' WHERE id=?""",(body,datetime.utcnow().isoformat(),conv["id"]))
-        conn.commit()
-        u = conn.execute("SELECT * FROM users WHERE id=%s",(conv["user_id"],)).fetchone()
+    ph = "%s" if is_pg() else "?"
+
+    # ── SMS-ONLY MODE ──────────────────────────────────────────────────────
+    # Keywords that trigger Coach Ray via SMS (no app needed)
+    SMS_TRIGGERS = ["JOIN","HOLA","START","TRABAJO","HELP","AYUDA","HELLO","HI","JOBS","YES"]
+    STOP_WORDS = ["STOP","UNSUBSCRIBE","CANCEL","QUIT","END"]
+
+    # Handle STOP
+    if body_upper in STOP_WORDS:
+        conn.close()
+        resp = MessagingResponse()
+        resp.message("You have been unsubscribed from WorkBridge. Reply JOIN to resubscribe.")
+        return PlainTextResponse(str(resp), media_type="application/xml")
+
+    # Check if this person is a registered user by phone number
+    user_by_phone = conn.execute(
+        f"SELECT * FROM users WHERE phone={ph} OR phone={ph}",
+        (from_number, from_number.replace("+1",""))
+    ).fetchone()
+
+    # Check if this is a trigger keyword from unknown number
+    is_trigger = body_upper in SMS_TRIGGERS or any(body_upper.startswith(t) for t in SMS_TRIGGERS)
+
+    if is_trigger and not user_by_phone:
+        # Auto-register new user for SMS-only mode
+        import secrets
+        auto_email = f"sms_{from_number.replace('+','')}@workbridge.sms"
+        auto_pass = secrets.token_urlsafe(16)
+        token = hashlib.sha256(f"{SECRET_KEY}{auto_email}{datetime.utcnow().isoformat()}".encode()).hexdigest()
+        lang = "es" if any(w in body_upper for w in ["HOLA","TRABAJO","AYUDA"]) else "en"
+        try:
+            conn.execute(
+                f"INSERT INTO users (first_name,last_name,email,password_hash,phone,language,credits,token) VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})",
+                ("SMS","User",auto_email,hash_pw(auto_pass),from_number,lang,10,token)
+            )
+            conn.commit()
+            user_by_phone = conn.execute(f"SELECT * FROM users WHERE phone={ph}",(from_number,)).fetchone()
+        except:
+            user_by_phone = conn.execute(f"SELECT * FROM users WHERE phone={ph}",(from_number,)).fetchone()
+
+    if user_by_phone or (is_trigger and user_by_phone):
+        u = dict(user_by_phone) if user_by_phone else None
         if u:
-            await manager.send(u["token"],{"type":"new_message","conversation_id":conv["id"],
-                "from":conv["contact_name"],"body":body,"alert":f"🎉 {conv['contact_name']} replied!"})
-            if u["phone"]:
-                await send_sms(u["phone"],f"WorkBridge: {conv['contact_name']} replied!\n\"{body[:80]}\"\nLog in: workbridgesms.com")
+            lang = u.get("language","en")
+            # Get or start SMS Coach Ray session
+            sms_msg = body
+            if is_trigger and body_upper in SMS_TRIGGERS:
+                sms_msg = "find me a job" if lang == "en" else "buscarme un trabajo"
+
+            # Call Coach Ray
+            try:
+                result = await call_coach_ray(u, sms_msg, "intake")
+                reply_text = result.get("reply","")
+                # Truncate for SMS (160 chars per segment, max 3 segments)
+                if len(reply_text) > 480:
+                    reply_text = reply_text[:477] + "..."
+                # Add workbridgesms.com for web access
+                if len(reply_text) < 140:
+                    reply_text += "\n\nworkbridgesms.com"
+            except Exception as e:
+                if lang == "es":
+                    reply_text = "Hola! Soy Coach Ray de WorkBridge. Te ayudo a encontrar trabajo. ¿Qué tipo de trabajo buscas? workbridgesms.com"
+                else:
+                    reply_text = "Hi! I'm Coach Ray from WorkBridge. I help you find work fast. What kind of job are you looking for? workbridgesms.com"
+
+            conn.close()
+            resp = MessagingResponse()
+            resp.message(reply_text)
+            return PlainTextResponse(str(resp), media_type="application/xml")
+
+    # ── EXISTING CONVERSATION REPLY (business replying to job seeker) ──────
+    conv = conn.execute(
+        f"SELECT * FROM conversations WHERE contact_phone={ph} ORDER BY last_message_at DESC LIMIT 1",
+        (from_number,)
+    ).fetchone()
+
+    if conv:
+        conn.execute(
+            f"""INSERT INTO messages (conversation_id,user_id,direction,body,from_number,to_number,status)
+            VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph})""",
+            (conv["id"],conv["user_id"],"inbound",body,from_number,TWILIO_FROM or "WorkBridge","received")
+        )
+        conn.execute(
+            f"""UPDATE conversations SET last_message={ph},last_message_at={ph},
+            unread_count=unread_count+1,status='replied' WHERE id={ph}""",
+            (body,datetime.utcnow().isoformat(),conv["id"])
+        )
+        conn.commit()
+        u = conn.execute(f"SELECT * FROM users WHERE id={ph}",(conv["user_id"],)).fetchone()
+        if u:
+            tok = u["token"] if isinstance(u,dict) else u[10]
+            uphone = u["phone"] if isinstance(u,dict) else u[5]
+            await manager.send(tok,{"type":"new_message","conversation_id":conv["id"],
+                "from":conv["contact_name"],"body":body,"alert":f"\U0001f389 {conv['contact_name']} replied!"})
+            if uphone:
+                await send_sms(uphone,f"WorkBridge: {conv['contact_name']} replied!\n\"{body[:80]}\"\nLog in: workbridgesms.com")
+
     conn.close()
     return PlainTextResponse(str(MessagingResponse()),media_type="application/xml")
 
