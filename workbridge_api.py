@@ -364,24 +364,97 @@ Target Job: {user.get('target_job','')}
 Availability: {user.get('availability','')}
 === END PROFILE ==="""
 
-COACH_SYSTEM = """You are Coach Ray — WorkBridge's AI career coach.
+COACH_SYSTEM = """You are Coach Ray — WorkBridge's AI specialist.
 You are warm, direct, and genuinely invested in every person you help.
-You have seen people go from homeless to employed in 48 hours.
+You have seen people go from homeless to employed in 48 hours. You are a DOER — not just a guide.
 
 CRITICAL RULES:
-- NEVER ask for name, phone, ZIP code, or state — you already have them in the user profile above
-- Always respond in the user's language from their profile
-- When drafting SMS to businesses, write in ENGLISH (US businesses) unless told otherwise
+- NEVER ask for name, phone, ZIP code, or state — already in profile above
+- Always respond in the user's language (Spanish if language=es)
+- SMS to businesses: always in ENGLISH regardless of user language
 - Keep responses under 200 words unless generating a document
 - Ask ONE question at a time
-- End every response with a clear next step
+- End EVERY response with a concrete next step YOU will take for them
+- You do the heavy lifting — search, draft, connect, send
 
-10 MISSIONS: intake > job_search > message_craft > blast_ready > follow_up > interview_prep > credential > negotiation > retention > advance
+MISSION-SPECIFIC BEHAVIOR:
+
+[JOB SEARCH]
+- Draft personalized SMS outreach to employers based on user's skills
+- Find employers actively hiring near their ZIP using live search data
+- Generate interview prep sheets, follow-up templates, negotiation scripts
+- Track applications and follow up automatically after 3 days
+- Match veterans to contractor jobs, seniors to part-time, parents to flexible schedules
+
+[EDUCATION]
+- Find FREE GED programs near user's ZIP — call centers, community colleges, libraries
+- Find trade school programs with financial aid options
+- Find apprenticeships and on-the-job training programs
+- Draft enrollment inquiry SMS/emails on user's behalf
+- Generate a personalized study plan with daily goals
+
+[HOUSING]
+- Search 211.org database for emergency shelter near ZIP
+- Find Section 8 voucher offices and waitlist status
+- Identify transitional housing, sober living, veterans housing
+- Draft housing application cover letters
+- Find rental assistance programs (ERAP, ESG, CoC)
+
+[SENIOR CARE]
+- Find licensed assisted living and memory care near ZIP
+- Check Medi-Cal/Medicare coverage options
+- Find in-home care agencies and cost estimates
+- Draft family inquiry letters to facilities
+- Find adult day programs and respite care
+
+[DEBT / TAX RELIEF]
+- Search IRS Fresh Start program eligibility
+- Find NFCC-certified free credit counselors by state
+- Find nonprofit debt management programs
+- Draft hardship letters to creditors
+- Generate debt payoff strategy based on balances
+
+[VEHICLE]
+- Find USAA and military appreciation dealer programs
+- Search CarMax and AutoNation inventory near ZIP
+- Find buy-here-pay-here dealers for credit-challenged buyers
+- Calculate monthly payment estimates
+- Draft purchase inquiry messages to dealers
+
+[HOME SERVICES]
+- Search CSLB or state licensing board for contractor verification
+- Find licensed, insured contractors near ZIP
+- Get BBB ratings and reviews
+- Draft service request messages
+- Flag unlicensed or uninsured contractors as HIGH RISK
+
+[HOUSEHOLD HELP]
+- Find vetted cleaning, lawn, and home service companies near ZIP
+- Search Care.com and TaskRabbit alternatives
+- Compare pricing and availability
+- Draft service booking requests
+
+[HIRE WORKERS / BUSINESS]
+- Pull from WorkBridge job seeker pool for matching candidates
+- Draft job posting SMS for rapid outreach
+- Screen candidates based on mission answers
+- Schedule interview batches
+
+[VETERANS HUB]
+- Translate MOS codes to civilian job titles
+- Connect to VA Vocational Rehabilitation (Ch. 31)
+- Find veteran-preference federal jobs on USAJOBS
+- Draft DD-214 civilian resume bullet points
+- Connect to Hire Heroes USA and ACP mentoring
 
 DOCUMENTS YOU CAN GENERATE:
-- Interview Prep Sheet, Salary Negotiation Script, Credential Roadmap, 90-Day Advance Plan, Follow-Up Templates
+- Interview Prep Sheet, Salary Negotiation Script, Credential Roadmap
+- 90-Day Advance Plan, Follow-Up Templates, Housing Application Letter
+- Debt Hardship Letter, GED Study Plan, VA Benefits Summary
 
-SMS DRAFTING: Label outgoing SMS as [SMS TO SEND - ENGLISH] so user knows exactly what gets sent."""
+SMS DRAFTING: Label outgoing SMS as [SMS TO SEND - ENGLISH] so user knows exactly what gets sent.
+
+ALWAYS end with: what you found, what you drafted, what you're sending next."""
 
 async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> dict:
     conn = get_db()
@@ -395,21 +468,85 @@ async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> d
     history = history[-24:]
     search_ctx = ""
     msg_lower = message.lower()
-    if any(k in msg_lower for k in ["salary","pay","wage","earn"]):
-        job = user.get("target_job",""); state = user.get("state",""); zp = user.get("zip_code","")
-        q = "average salary " + job + " " + state + " 2025"
-        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
-    elif any(k in msg_lower for k in ["certif","license","course","train","program"]):
-        q = job + " certification near " + zp + " " + state
-        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
-        q = "common interview questions " + job + " 2025"
-        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
-    elif any(k in msg_lower for k in ["ged","diploma","hse"]):
-        q = "free GED resources " + state + " 2025"
-        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
-    elif any(k in msg_lower for k in ["find","job","hiring","work","near"]):
-        q = "jobs hiring " + job + " near " + zp + " " + state
-        search_ctx = "\n[LIVE DATA]: " + (await web_search(q)) + "\n"
+    job   = user.get("target_job","") or ""
+    state = user.get("state","") or ""
+    zp    = user.get("zip_code","") or ""
+    lang  = user.get("language","en") or "en"
+
+    # Mission-aware live search — fires on first message of each mission
+    try:
+        if mission == "education" or any(k in msg_lower for k in ["ged","diploma","trade school","college","program","certif"]):
+            q = f"free GED programs adult education near {zp} {state} 2025"
+            search_ctx += "\n[GED/EDUCATION RESOURCES]: " + (await web_search(q)) + "\n"
+            q = f"trade school apprenticeship programs {state} financial aid 2025"
+            search_ctx += "\n[TRADE PROGRAMS]: " + (await web_search(q)) + "\n"
+
+        elif mission == "housing" or any(k in msg_lower for k in ["shelter","housing","homeless","section 8","rent"]):
+            q = f"emergency shelter housing assistance near {zp} {state}"
+            search_ctx += "\n[HOUSING RESOURCES]: " + (await web_search(q)) + "\n"
+            q = f"section 8 voucher waitlist rental assistance {zp} {state}"
+            search_ctx += "\n[RENTAL ASSISTANCE]: " + (await web_search(q)) + "\n"
+
+        elif mission == "debt" or any(k in msg_lower for k in ["debt","credit","irs","tax","collection","loan"]):
+            q = f"IRS Fresh Start program debt relief nonprofit {state} 2025"
+            search_ctx += "\n[DEBT RELIEF]: " + (await web_search(q)) + "\n"
+            q = f"NFCC credit counseling free {state} 2025"
+            search_ctx += "\n[CREDIT COUNSELING]: " + (await web_search(q)) + "\n"
+
+        elif mission == "senior" or any(k in msg_lower for k in ["senior","elderly","assisted","memory care","caregiver"]):
+            q = f"assisted living memory care facilities near {zp} {state} Medi-Cal"
+            search_ctx += "\n[SENIOR CARE]: " + (await web_search(q)) + "\n"
+            q = f"in-home care agencies {zp} {state} cost 2025"
+            search_ctx += "\n[IN-HOME CARE]: " + (await web_search(q)) + "\n"
+
+        elif mission == "vehicle" or any(k in msg_lower for k in ["car","vehicle","truck","auto","dealer","usaa"]):
+            q = f"USAA military car buying program dealers near {zp}"
+            search_ctx += "\n[VEHICLE RESOURCES]: " + (await web_search(q)) + "\n"
+            q = f"buy here pay here dealers bad credit {zp} {state}"
+            search_ctx += "\n[CAR DEALERS]: " + (await web_search(q)) + "\n"
+
+        elif mission == "home" or any(k in msg_lower for k in ["plumber","electrician","contractor","repair","handyman"]):
+            q = f"licensed insured contractors near {zp} {state} BBB"
+            search_ctx += "\n[CONTRACTOR SEARCH]: " + (await web_search(q)) + "\n"
+
+        elif mission == "chores" or any(k in msg_lower for k in ["clean","lawn","mow","housekeeping","laundry"]):
+            q = f"house cleaning lawn care services near {zp} {state} affordable"
+            search_ctx += "\n[HOME SERVICES]: " + (await web_search(q)) + "\n"
+
+        elif mission == "veteran" or any(k in msg_lower for k in ["va","veteran","military","mos","voc rehab","gi bill"]):
+            q = f"VA vocational rehabilitation jobs veteran employment {state} 2025"
+            search_ctx += "\n[VETERAN RESOURCES]: " + (await web_search(q)) + "\n"
+            q = f"federal jobs veteran preference USAJOBS {state} hiring"
+            search_ctx += "\n[FEDERAL JOBS]: " + (await web_search(q)) + "\n"
+
+        elif mission in ["job","intake"] or any(k in msg_lower for k in ["salary","pay","wage","hiring","work","near","job"]):
+            if any(k in msg_lower for k in ["salary","pay","wage","earn"]):
+                q = f"average salary {job} {state} 2025"
+            else:
+                q = f"jobs hiring {job} near {zp} {state}"
+            search_ctx += "\n[JOB MARKET]: " + (await web_search(q)) + "\n"
+
+    except Exception as se:
+        search_ctx = f"\n[Search unavailable: {str(se)[:50]}]\n"
+
+    # Build full system with user profile + live search data
+    profile = f"""
+USER PROFILE:
+Name: {user.get("first_name","")} {user.get("last_name","")}
+Phone: {user.get("phone","")}
+ZIP: {user.get("zip_code","")}
+State: {user.get("state","")}
+Language: {user.get("language","en")}
+Target Job: {user.get("target_job","")}
+Skills: {user.get("skills","")}
+Availability: {user.get("availability","")}
+Current Mission: {mission}
+{search_ctx}"""
+
+    full_system = COACH_SYSTEM + profile
+
+    # Add user message to history
+    history.append({"role":"user","content":message})
 
     reply = ""
     if not ANTHROPIC_KEY:
@@ -421,23 +558,32 @@ async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> d
                 res = await client.post(
                     "https://api.anthropic.com/v1/messages",
                     headers={"x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
-                    json={"model":"claude-sonnet-4-20250514","max_tokens":1000,"system":system,"messages":history}
+                    json={"model":"claude-sonnet-4-20250514","max_tokens":1000,"system":full_system,"messages":history}
                 )
                 reply = res.json()["content"][0]["text"]
         except Exception as e:
             reply = f"Coach Ray is momentarily unavailable. ({str(e)[:60]})"
 
     history.append({"role":"assistant","content":reply})
+    # Save without the user message in history (already stored above)
     conn.execute("UPDATE coach_sessions SET session_json=%s,mission=%s,updated_at=%s WHERE user_id=%s",
         (json.dumps(history),mission,datetime.utcnow().isoformat(),user["id"]))
 
     doc = None
-    doc_keywords = ["interview prep sheet","negotiation script","credential roadmap","90-day","follow-up template"]
+    doc_keywords = ["interview prep","negotiation script","credential roadmap","90-day",
+                    "follow-up template","housing application","hardship letter",
+                    "ged study plan","va benefits","debt payoff","service request"]
     if any(k in reply.lower() for k in doc_keywords):
-        doc_type = "interview_prep" if "interview prep" in reply.lower() else \
-                   "negotiation_script" if "negotiation" in reply.lower() else \
-                   "credential_roadmap" if "credential" in reply.lower() else \
-                   "advance_plan" if "90-day" in reply.lower() else "followup_templates"
+        doc_type = "interview_prep"      if "interview prep" in reply.lower() else \
+                   "negotiation_script"  if "negotiation script" in reply.lower() else \
+                   "credential_roadmap"  if "credential roadmap" in reply.lower() else \
+                   "advance_plan"        if "90-day" in reply.lower() else \
+                   "housing_letter"      if "housing application" in reply.lower() else \
+                   "hardship_letter"     if "hardship letter" in reply.lower() else \
+                   "ged_study_plan"      if "ged study plan" in reply.lower() else \
+                   "va_benefits_summary" if "va benefits" in reply.lower() else \
+                   "debt_payoff_plan"    if "debt payoff" in reply.lower() else \
+                   "followup_templates"
         doc_content = await generate_document(doc_type, user)
         if doc_content:
             cur = conn.execute("INSERT INTO generated_docs (user_id,doc_type,title,content) VALUES (%s,%s,%s,%s)",
@@ -458,6 +604,11 @@ async def generate_document(doc_type: str, user: dict) -> Optional[dict]:
         "credential_roadmap": f"Generate a Credential Roadmap for {first} pursuing {job} in {state}. Include fastest path, step-by-step timeline, estimated costs, free resources.",
         "advance_plan": f"Generate a 90-Day Career Advance Plan for {first} in {job}. Days 1-30 foundation, 31-60 growth, 61-90 advance. Specific daily actions.",
         "followup_templates": f"Generate 3 Follow-Up SMS Templates for {first} following up about {job}. Each under 160 chars. Soft, value-add, and final follow-up.",
+        "housing_letter": f"Generate a Housing Application Cover Letter for {first} in {state}. Include: hardship summary, stable income proof, references section, request for consideration. Professional and compassionate tone.",
+        "hardship_letter": f"Generate a Debt Hardship Letter for {first} to send to creditors in {state}. Include: financial hardship explanation, proposed payment plan, request for interest reduction, professional tone.",
+        "ged_study_plan": f"Generate a 30-Day GED Study Plan for {first} in {state}. Include: daily study schedule, free resources, practice test schedule, subject breakdown (Math, RLA, Science, Social Studies), tips.",
+        "va_benefits_summary": f"Generate a VA Benefits Summary for veteran {first} in {state}. Include: disability claim checklist, education benefits (GI Bill), home loan eligibility, vocational rehab (Ch.31), healthcare enrollment steps.",
+        "debt_payoff_plan": f"Generate a Debt Payoff Strategy for {first} in {state}. Include: snowball vs avalanche comparison, IRS Fresh Start eligibility, NFCC counselor resources, sample 12-month payoff timeline.",
     }
     titles = {
         "interview_prep": f"Interview Prep Sheet — {job}",
@@ -465,6 +616,11 @@ async def generate_document(doc_type: str, user: dict) -> Optional[dict]:
         "credential_roadmap": f"Credential Roadmap — {job}",
         "advance_plan": "90-Day Career Advance Plan",
         "followup_templates": "Follow-Up Message Templates",
+        "housing_letter": "Housing Application Cover Letter",
+        "hardship_letter": "Debt Hardship Letter",
+        "ged_study_plan": "30-Day GED Study Plan",
+        "va_benefits_summary": "VA Benefits Summary",
+        "debt_payoff_plan": "Debt Payoff Strategy",
     }
     try:
         async with httpx.AsyncClient(timeout=30) as client:
