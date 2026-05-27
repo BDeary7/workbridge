@@ -316,6 +316,13 @@ export default function Dashboard(){
   const [outreachMessage, setOutreachMessage] = useState<string>('')
   const [waitingForNarrative, setWaitingForNarrative] = useState(false)
   const [sending, setSending] = useState<boolean>(false)
+  const [gedMode, setGedMode] = useState<boolean>(false)
+  const [gedSubject, setGedSubject] = useState<string>('')
+  const [gedQuestions, setGedQuestions] = useState<any[]>([])
+  const [gedAnswers, setGedAnswers] = useState<Record<number,string>>({})
+  const [gedQi, setGedQi] = useState<number>(0)
+  const [gedResults, setGedResults] = useState<any>(null)
+  const [gedLoading, setGedLoading] = useState<boolean>(false)
   const ref = useRef<HTMLDivElement>(null)
   const tok = () => typeof window !== 'undefined' ? localStorage.getItem('wb_token') : null
 
@@ -494,9 +501,9 @@ export default function Dashboard(){
       const hasDeadline = /june|july|august|september|deadline|scholarship|asap|urgent|by\s+\w+/.test(narrative)
       let helpMsg = ''
       if(snapMission==='education'){
-        helpMsg = hasDeadline
-          ? `I see you have an urgent deadline! Let me help you RIGHT NOW.\n\nFor the GED there are 4 subjects:\n1. Math\n2. Science\n3. Social Studies\n4. Reasoning Through Language Arts\n\nWhich feels hardest? Tell me and I will build your 30-day study plan immediately.`
-          : `Now let me help you prepare! Which GED subject feels hardest — Math, Science, Social Studies, or Language Arts? I will build your study plan right now.`
+        helpMsg = `🎓 Before I build your study plan, let me see where you stand first!\n\nCoach Ray uses a baseline GED Mock Test to find your exact weak spots — no wasted study time.\n\n📝 4 Subjects · 10 Questions Each · Scored Instantly\n\nWhich subject do you want to test FIRST?`
+        setGedMode(true)
+        setGedSubject('')
       } else if(snapMission==='job'){
         helpMsg = `While you wait, let me write your outreach message right now. What is the main type of work you are looking for? I will craft something strong you can send today.`
       } else if(snapMission==='veteran'){
@@ -557,6 +564,72 @@ export default function Dashboard(){
       setBuyError('Connection error: '+e.message)
     }
     setBuyLoading(null)
+  }
+
+  // ── GED TUTORING ENGINE ──────────────────────────────────────────────────
+  const GED_SUBJECTS = [
+    {id:'math', label:'📐 Math', desc:'Algebra, Geometry, Statistics'},
+    {id:'rla', label:'📖 Language Arts', desc:'Grammar, Reading, Writing'},
+    {id:'science', label:'🔬 Science', desc:'Biology, Chemistry, Physics'},
+    {id:'social_studies', label:'🌎 Social Studies', desc:'History, Civics, Economics'},
+  ]
+
+  const startGedTest = async(subject:string)=>{
+    setGedLoading(true)
+    setGedSubject(subject)
+    setGedAnswers({})
+    setGedQi(0)
+    setGedResults(null)
+    try {
+      const t = tok()
+      const res = await fetch(`${API}/coach/ged-test/${subject}`,{headers:{Authorization:`Bearer ${t}`}})
+      const data = await res.json()
+      setGedQuestions(data.questions||[])
+      setMsgs(m=>[...m,{r:'a',c:`📝 Starting ${subject.toUpperCase()} Mock Test — ${data.total} questions. Take your time. No pressure!`}])
+    } catch(e) {
+      setMsgs(m=>[...m,{r:'a',c:'Could not load test. Please try again.'}])
+    }
+    setGedLoading(false)
+  }
+
+  const submitGedAnswer = (answerIdx:number, answer:string)=>{
+    const newAnswers = {...gedAnswers, [answerIdx]: answer}
+    setGedAnswers(newAnswers)
+    if(answerIdx < gedQuestions.length - 1){
+      setGedQi(answerIdx + 1)
+    } else {
+      // All answered — submit for scoring
+      scoreGedTest(newAnswers)
+    }
+  }
+
+  const scoreGedTest = async(answers:Record<number,string>)=>{
+    setGedLoading(true)
+    try {
+      const t = tok()
+      const res = await fetch(`${API}/coach/ged-score`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${t}`},
+        body:JSON.stringify({subject:gedSubject, answers})
+      })
+      const data = await res.json()
+      setGedResults(data)
+      const emoji = data.percentage >= 75 ? '🎉' : data.percentage >= 60 ? '📈' : '📚'
+      setMsgs(m=>[...m,{r:'a',c:`${emoji} ${gedSubject.toUpperCase()} Score: ${data.percentage}% (${data.score}/${data.total})
+
+${data.status}
+
+${data.weak_concepts.length>0 ? '⚠️ Weak areas: '+data.weak_concepts.join(', ') : '✅ Strong across all concepts!'}`}])
+      if(data.tutoring_plan){
+        setMsgs(m=>[...m,{r:'a',c:'📚 Coach Ray Tutoring Plan:
+
+'+data.tutoring_plan}])
+      }
+    } catch(e) {
+      setMsgs(m=>[...m,{r:'a',c:'Scoring error — please try again.'}])
+    }
+    setGedLoading(false)
+    setGedQuestions([])
   }
 
   const sendOutreach = async()=>{
@@ -818,6 +891,97 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
                     )}
                   </div>
                 ))}
+
+                {/* GED TEST UI */}
+                {gedMode&&!gedResults&&gedQuestions.length===0&&(
+                  <div style={{padding:'16px',background:'rgba(245,158,11,.08)',border:'1px solid rgba(245,158,11,.3)',borderRadius:14,margin:'8px 0'}}>
+                    <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>🎓 GED Baseline Mock Test</div>
+                    <div style={{fontSize:13,color:'rgba(240,244,248,.7)',marginBottom:16}}>Pick a subject to start your 10-question mock test. Coach Ray will score it and build your study plan.</div>
+                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                      {GED_SUBJECTS.map(s=>(
+                        <button key={s.id} onClick={()=>startGedTest(s.id)}
+                          disabled={gedLoading}
+                          style={{padding:'12px 16px',borderRadius:10,border:'1px solid rgba(245,158,11,.3)',
+                            background:'rgba(255,255,255,.04)',color:W,cursor:'pointer',
+                            display:'flex',justifyContent:'space-between',alignItems:'center',textAlign:'left' as const}}>
+                          <div>
+                            <div style={{fontWeight:700,fontSize:14}}>{s.label}</div>
+                            <div style={{fontSize:11,color:'rgba(240,244,248,.5)',marginTop:2}}>{s.desc}</div>
+                          </div>
+                          <span style={{color:A,fontSize:13}}>Start →</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* GED QUESTION */}
+                {gedMode&&gedQuestions.length>0&&!gedResults&&(
+                  <div style={{padding:'16px',background:'rgba(16,185,129,.06)',border:'1px solid rgba(16,185,129,.25)',borderRadius:14,margin:'8px 0'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
+                      <div style={{fontWeight:700,fontSize:14}}>📝 Question {gedQi+1} of {gedQuestions.length}</div>
+                      <div style={{fontSize:12,color:'rgba(240,244,248,.5)'}}>{gedSubject.toUpperCase()}</div>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{height:4,background:'rgba(255,255,255,.1)',borderRadius:2,marginBottom:14}}>
+                      <div style={{height:4,background:G,borderRadius:2,width:`${((gedQi)/gedQuestions.length)*100}%`,transition:'width .3s'}}/>
+                    </div>
+                    <div style={{fontSize:15,fontWeight:600,marginBottom:16,lineHeight:1.5}}>
+                      {gedQuestions[gedQi]?.q}
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                      {gedQuestions[gedQi]?.options.map((opt:string,oi:number)=>(
+                        <button key={oi} onClick={()=>submitGedAnswer(gedQi,opt)}
+                          style={{padding:'12px 16px',borderRadius:10,border:'1px solid rgba(255,255,255,.15)',
+                            background:'rgba(255,255,255,.04)',color:W,cursor:'pointer',
+                            textAlign:'left' as const,fontSize:14,fontWeight:400}}>
+                          <span style={{color:A,fontWeight:700,marginRight:8}}>
+                            {String.fromCharCode(65+oi)}.
+                          </span>
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* GED RESULTS */}
+                {gedMode&&gedResults&&(
+                  <div style={{padding:'16px',background:gedResults.passed?'rgba(16,185,129,.08)':'rgba(245,158,11,.08)',
+                    border:`1px solid ${gedResults.passed?'rgba(16,185,129,.3)':'rgba(245,158,11,.3)'}`,borderRadius:14,margin:'8px 0'}}>
+                    <div style={{fontWeight:800,fontSize:16,marginBottom:4}}>
+                      {gedResults.passed?'🎉':'📚'} {gedSubject.toUpperCase()} — {gedResults.percentage}%
+                    </div>
+                    <div style={{fontSize:13,color:'rgba(240,244,248,.7)',marginBottom:12}}>{gedResults.status}</div>
+                    {gedResults.weak_concepts.length>0&&(
+                      <div style={{marginBottom:12}}>
+                        <div style={{fontSize:12,fontWeight:700,color:A,marginBottom:4}}>⚠️ Focus on these:</div>
+                        <div style={{display:'flex',flexWrap:'wrap' as const,gap:6}}>
+                          {gedResults.weak_concepts.map((c:string,i:number)=>(
+                            <span key={i} style={{padding:'3px 10px',borderRadius:20,fontSize:11,
+                              background:'rgba(245,158,11,.15)',color:A,border:'1px solid rgba(245,158,11,.3)'}}>
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap' as const}}>
+                      {GED_SUBJECTS.filter(s=>s.id!==gedSubject).map(s=>(
+                        <button key={s.id} onClick={()=>startGedTest(s.id)}
+                          style={{padding:'8px 14px',borderRadius:20,border:'1px solid rgba(255,255,255,.2)',
+                            background:'rgba(255,255,255,.06)',color:W,cursor:'pointer',fontSize:12,fontWeight:600}}>
+                          Test {s.label}
+                        </button>
+                      ))}
+                      <button onClick={()=>startGedTest(gedSubject)}
+                        style={{padding:'8px 14px',borderRadius:20,border:`1px solid ${G}44`,
+                          background:`rgba(16,185,129,.1)`,color:G,cursor:'pointer',fontSize:12,fontWeight:600}}>
+                        Retry {gedSubject.toUpperCase()}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {showContactOptions&&(
                   <div style={{paddingLeft:36}}>
