@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 export const metadata = { title: 'Privacy Policy — WorkBridge' }
 
 export default function PrivacyPage() {
@@ -74,7 +75,7 @@ export default function PrivacyPage() {
   )
 }
 
-function Section({n,children}:{n:string,children:React.ReactNode}) {
+function Section({n,children}:{n:string,children:ReactNode}) {
   return (
     <div style={{marginBottom:24}}>
       <h2 style={{fontSize:18,fontWeight:700,marginBottom:8,color:'#F59E0B'}}>{n}</h2>
