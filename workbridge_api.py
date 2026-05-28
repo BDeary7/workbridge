@@ -276,8 +276,29 @@ def init_db():
     conn.commit(); conn.close()
 
 @asynccontextmanager
+def seed_founder():
+    """Recreate Brandon's founder account on every boot so a DB reset never locks him out."""
+    try:
+        conn = get_db()
+        ph = "%s" if is_pg() else "?"
+        existing = conn.execute(f"SELECT id FROM users WHERE email={ph}", ("brandondeary5@gmail.com",)).fetchone()
+        if not existing:
+            token = make_token("brandondeary5@gmail.com")
+            conn.execute(
+                f"""INSERT INTO users (first_name,last_name,email,password_hash,phone,zip_code,state,language,credits,token)
+                    VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})""",
+                ("Brandon","Deary","brandondeary5@gmail.com",hash_pw("Workbridge696631$$"),
+                 "9494635289","92630","CA","en",100,token))
+            conn.commit()
+            print("[seed_founder] Founder account recreated with 100 credits")
+        else:
+            print("[seed_founder] Founder account already present")
+        conn.close()
+    except Exception as e:
+        print(f"[seed_founder] error: {e}")
+
 async def lifespan(app: FastAPI):
-    init_db(); yield
+    init_db(); seed_founder(); yield
 
 app = FastAPI(title="WorkBridge API v3.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
