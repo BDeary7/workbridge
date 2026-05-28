@@ -638,9 +638,7 @@ ${data.status}
 
 ${data.weak_concepts.length>0 ? '⚠️ Weak areas: '+data.weak_concepts.join(', ') : '✅ Strong across all concepts!'}`}])
       if(data.tutoring_plan){
-        setMsgs(m=>[...m,{r:'a',c:'📚 Coach Ray Tutoring Plan:
-
-'+data.tutoring_plan}])
+        setMsgs(m=>[...m,{r:'a',c:'📚 Coach Ray Tutoring Plan:\n\n'+data.tutoring_plan}])
       }
     } catch(e) {
       setMsgs(m=>[...m,{r:'a',c:'Scoring error — please try again.'}])
