@@ -11,13 +11,46 @@ import psycopg2.extras
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
+class _PGCursor:
+    """Wraps a psycopg2 cursor so .execute() returns self (chainable like sqlite3)."""
+    def __init__(self, cur): self._cur = cur
+    def fetchone(self): return self._cur.fetchone()
+    def fetchall(self): return self._cur.fetchall()
+    @property
+    def lastrowid(self):
+        try:
+            row = self._cur.fetchone()
+            if row is None: return 0
+            # RealDictRow or tuple
+            return list(row.values())[0] if hasattr(row, "values") else row[0]
+        except Exception:
+            return 0
+    @property
+    def rowcount(self): return self._cur.rowcount
+    def __getattr__(self, name): return getattr(self._cur, name)
+
+class _PGConn:
+    """Wraps a psycopg2 connection so conn.execute(...) works like sqlite3."""
+    def __init__(self, conn): self._conn = conn
+    def execute(self, query, params=()):
+        cur = self._conn.cursor()
+        cur.execute(query, params)
+        return _PGCursor(cur)
+    def executescript(self, script):
+        cur = self._conn.cursor()
+        cur.execute(script)
+        return _PGCursor(cur)
+    def cursor(self): return self._conn.cursor()
+    def commit(self): return self._conn.commit()
+    def close(self): return self._conn.close()
+    def __getattr__(self, name): return getattr(self._conn, name)
+
 def get_db():
     if DATABASE_URL:
         conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
         conn.autocommit = False
-        return conn
+        return _PGConn(conn)
     else:
-        import sqlite3
         conn = sqlite3.connect("/tmp/workbridge.db")
         conn.row_factory = sqlite3.Row
         return conn
