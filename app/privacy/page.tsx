@@ -68,7 +68,7 @@ export default function PrivacyPage() {
         </Section>
 
         <p style={{marginTop:40,fontSize:13,color:'rgba(240,244,248,.4)'}}>
-          <a href="/terms" style={{color:A}}>Terms &amp; Conditions</a> · © 2026 WorkBridge
+          <a href="/terms" style={{color:A}}>Terms &amp; Conditions</a> · © 2026 Work Bridge SMS LLC
         </p>
       </div>
     </main>

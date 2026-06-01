@@ -276,6 +276,10 @@ def init_db():
     conn.commit(); conn.close()
 
 @asynccontextmanager
+def hash_pw(p): return hashlib.sha256(f"{SECRET_KEY}{p}".encode()).hexdigest()
+def make_token(email): return hashlib.sha256(
+    f"{SECRET_KEY}{email}{datetime.utcnow().isoformat()}".encode()).hexdigest()
+
 def seed_founder():
     """Recreate Brandon's founder account on every boot so a DB reset never locks him out."""
     try:
@@ -304,9 +308,6 @@ app = FastAPI(title="WorkBridge API v3.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-def hash_pw(p): return hashlib.sha256(f"{SECRET_KEY}{p}".encode()).hexdigest()
-def make_token(email): return hashlib.sha256(
-    f"{SECRET_KEY}{email}{datetime.utcnow().isoformat()}".encode()).hexdigest()
 
 def get_user(request: Request):
     token = request.headers.get("Authorization","").replace("Bearer ","")

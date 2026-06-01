@@ -13,7 +13,7 @@ export default function TermsPage() {
         <p style={{color:'rgba(240,244,248,.5)',fontSize:14,marginBottom:32}}>Last Updated: May 28, 2026</p>
 
         <Section n="1. Acceptance of Terms">
-          Welcome to WorkBridge, operated by WorkBridge ("WorkBridge," "we," "us," or "our"). By accessing or using our website (workbridgesms.com), mobile-accessible application, or SMS text messaging services (collectively, the "Service"), you agree to be bound by these Terms &amp; Conditions. If you do not agree, do not use the Service. WorkBridge connects job seekers and individuals seeking employment, education, housing, veteran, and related social services to resources and opportunities, primarily through SMS text messaging and an AI-powered coaching assistant ("Coach Ray").
+          Welcome to WorkBridge, operated by Work Bridge SMS LLC ("WorkBridge," "we," "us," or "our"). By accessing or using our website (workbridgesms.com), mobile-accessible application, or SMS text messaging services (collectively, the "Service"), you agree to be bound by these Terms &amp; Conditions. If you do not agree, do not use the Service. WorkBridge connects job seekers and individuals seeking employment, education, housing, veteran, and related social services to resources and opportunities, primarily through SMS text messaging and an AI-powered coaching assistant ("Coach Ray").
         </Section>
 
         <Section n="2. Eligibility">
@@ -46,7 +46,7 @@ export default function TermsPage() {
         </Section>
 
         <Section n="7. Intellectual Property">
-          The Service, including its software, design, text, and the Coach Ray system, is owned by WorkBridge and protected by applicable intellectual property laws. You may not copy, modify, distribute, or reverse-engineer any part of the Service without our written permission.
+          The Service, including its software, design, text, and the Coach Ray system, is owned by Work Bridge SMS LLC and protected by applicable intellectual property laws. You may not copy, modify, distribute, or reverse-engineer any part of the Service without our written permission.
         </Section>
 
         <Section n="8. Third-Party Services">
@@ -62,7 +62,7 @@ export default function TermsPage() {
         </Section>
 
         <Section n="11. Indemnification">
-          You agree to indemnify and hold harmless WorkBridge from any claims, damages, or expenses arising from your violation of these Terms or misuse of the Service.
+          You agree to indemnify and hold harmless Work Bridge SMS LLC from any claims, damages, or expenses arising from your violation of these Terms or misuse of the Service.
         </Section>
 
         <Section n="12. Termination">
@@ -82,7 +82,7 @@ export default function TermsPage() {
         </Section>
 
         <p style={{marginTop:40,fontSize:13,color:'rgba(240,244,248,.4)'}}>
-          <a href="/privacy" style={{color:A}}>Privacy Policy</a> · © 2026 WorkBridge
+          <a href="/privacy" style={{color:A}}>Privacy Policy</a> · © 2026 Work Bridge SMS LLC
         </p>
       </div>
     </main>
