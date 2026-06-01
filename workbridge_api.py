@@ -2,7 +2,7 @@
 # Coach Ray + Live Search + Document Generation + Two-Way SMS
 # Deploy: uvicorn workbridge_api:app --host 0.0.0.0 --port $PORT
 
-import os, hashlib, json, asyncio, httpx, re
+import os, hashlib, json, asyncio, httpx, re, sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -65,11 +65,6 @@ class ConnectionManager:
             except: self.disconnect(token)
 
 manager = ConnectionManager()
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 def init_db():
     conn = get_db()
