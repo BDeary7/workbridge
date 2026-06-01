@@ -275,7 +275,6 @@ def init_db():
     """)
     conn.commit(); conn.close()
 
-@asynccontextmanager
 def hash_pw(p): return hashlib.sha256(f"{SECRET_KEY}{p}".encode()).hexdigest()
 def make_token(email): return hashlib.sha256(
     f"{SECRET_KEY}{email}{datetime.utcnow().isoformat()}".encode()).hexdigest()
@@ -301,6 +300,7 @@ def seed_founder():
     except Exception as e:
         print(f"[seed_founder] error: {e}")
 
+@asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db(); seed_founder(); yield
 
