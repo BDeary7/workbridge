@@ -436,8 +436,30 @@ export default function Dashboard(){
       setQi(-1);setDone(true)
       const label = MISSIONS.find(x=>x.id===mission)?.label
       const hoursMsg = getBusinessHoursMessage()
+
+      // Missions that HELP DIRECTLY (never blast businesses)
+      const HELP_DIRECT = ['education','debt','housing','veteran']
+      if (HELP_DIRECT.includes(mission||'')) {
+        const directMission = mission
+        const directAnswers = {...na}
+        saveProfile(na, mission||'')
+        setTimeout(()=>{
+          if (directMission === 'education') {
+            setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your profile is saved.\n\n🎓 Before I build your study plan, let me see where you stand. Coach Ray uses a baseline GED Mock Test to find your exact weak spots — no wasted study time.\n\n📝 4 Subjects · 10 Questions Each · Scored Instantly\n\nWhich subject do you want to test FIRST?`}])
+            setGedMode(true); setGedSubject('')
+          } else if (directMission === 'debt') {
+            setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your profile is saved.\n\n💳 I am pulling debt relief resources for ${directAnswers.state||'your state'} right now:\n\n🏛️ IRS Fresh Start — tax debt reduction\n📋 NFCC certified counselors — FREE in your area\n⚖️ Debt Management Plans — lower interest rates\n\nWhat type of debt is most urgent — credit cards, medical, tax, student loans, or collections? I will draft your hardship letter and find counselors near you.`}])
+          } else if (directMission === 'housing') {
+            setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your profile is saved.\n\n🏠 I am pulling housing resources near ${directAnswers.zip_code||'your ZIP'} right now:\n\n📞 211 — same-day emergency shelter referrals\n🏢 Section 8 / HCV voucher office in your county\n🤝 Transitional housing + sober living\n💰 Emergency rental assistance (ERAP)\n\nIs this for tonight (emergency) or longer-term stable housing? I will find the right options and help you apply.`}])
+          } else if (directMission === 'veteran') {
+            setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your profile is saved. 🎖️ Thank you for your service.\n\nHere is what Coach Ray is checking for you:\n\n1. 🩺 VA Disability Claim status\n2. 🎓 GI Bill / Voc Rehab (Ch. 31)\n3. 🏠 VA Home Loan eligibility\n4. 💼 Veteran-preference federal jobs (USAJOBS)\n\nWhat is your MOS / job code? I will translate it to civilian roles and pull your benefits.`}])
+          }
+        }, 600)
+        return
+      }
+
       setTimeout(()=>{
-        // Generate outreach message and show preview
+        // Generate outreach message and show preview (BLAST missions only)
     const currentAnswers = {...na}
     const currentMission = mission
     setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your ${label} profile is complete and saved.\n\n${hoursMsg}\n\nI am writing your outreach message now...`}])
