@@ -19,12 +19,14 @@ const MISSIONS = [
 ]
 
 // CONDITIONAL QUESTION TREES
-const getQuestions = (mission: string, answers: Record<string,string>, userPhone: string, userEmail: string) => {
+const getQuestions = (mission: string, answers: Record<string,string>, userPhone: string, userEmail: string, userZip: string = '') => {
   const skipPhone = !!userPhone
   const skipEmail = !!userEmail
+  const skipZip = !!userZip
 
   const phoneQ = skipPhone ? null : {q:'Best phone number to reach you?',key:'phone',type:'text'}
   const emailQ = skipEmail ? null : {q:'Best email for follow-up?',key:'contact_email',type:'text'}
+  const zipQ = skipZip ? null : {q:'What is your ZIP code?',key:'zip',type:'text'}
 
   if (mission === 'veteran') {
     const base = [
@@ -34,7 +36,7 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
       {q:'Do you have a VA disability rating?',key:'disability_rating',options:['No rating','10-30%','40-60%','70-90%','100% P&T','Not sure']},
       {q:'Are you currently receiving VA benefits?',key:'va_benefits',options:['Yes — full','Yes — some','No — never applied','No — was denied','In process']},
       {q:'What are you most interested in today?',key:'primary_need',options:['Home refinancing','Buying a home','VA disability claim','Tax breaks','Car purchase','Education/GED','Employment','Financial relief','All of the above']},
-      {q:'What is your ZIP code?',key:'zip',type:'text'},
+      ...(zipQ ? [zipQ] : []),
       {q:'Approximate annual household income?',key:'income',options:['Under $30K','$30K-$50K','$50K-$75K','$75K-$100K','Over $100K','Prefer not to say']},
       {q:'Do you own your home?',key:'home_owner',options:['Yes — I own my home','No — I rent','No — homeless or in transition','No — living with family']},
     ]
@@ -97,7 +99,7 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
     const base = [
       jobTypeQ,
       ...jobFollowUp,
-      {q:'What is your ZIP code?',key:'zip',type:'text'},
+      ...(zipQ ? [zipQ] : []),
       {q:'Are you authorized to work in the US?',key:'work_auth',options:['Yes — US Citizen','Yes — Permanent Resident','Yes — Work Visa','No']},
       {q:'What is your availability?',key:'availability',options:['Full-time only','Part-time only','Either','Weekends only','Evenings only','Flexible']},
       {q:'Do you have a valid drivers license?',key:'drivers_license',options:['Yes — clean record','Yes — some violations','No','In progress']},
@@ -117,7 +119,7 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
     return [
       {q:'What type of home service do you need?',key:'service_type',options:['Plumbing','Electrical','HVAC / AC','Roofing','Painting','Flooring','Landscaping','Cleaning','Pest Control','Handyman','Other']},
       {q:'Describe the problem briefly.',key:'problem_desc',type:'text'},
-      {q:'What is your ZIP code?',key:'zip',type:'text'},
+      ...(zipQ ? [zipQ] : []),
       {q:'How urgent is this?',key:'urgency',options:['Emergency — need help NOW','Today','This week','Within 2 weeks','Just getting quotes']},
       {q:'Do you own or rent?',key:'own_or_rent',options:['Own','Rent — landlord approval needed','Rent — I will handle it']},
       {q:'What is your budget?',key:'budget',options:['Under $200','$200-$500','$500-$1,000','$1,000-$3,000','Over $3,000','Need estimate first']},
@@ -146,7 +148,7 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
   if (mission === 'education') {
     return [
       {q:'What educational goal are you working toward?',key:'goal',options:['GED / High School Equivalency','Trade / Vocational Certificate','Associate Degree','Bachelor Degree','Job certification','ESL — English as Second Language','Learn a skill','Not sure']},
-      {q:'What is your ZIP code?',key:'zip',type:'text'},
+      ...(zipQ ? [zipQ] : []),
       {q:'Preferred schedule?',key:'schedule',options:['Daytime','Evening','Weekend','Online / self-paced','Hybrid','Flexible']},
       {q:'Monthly budget for education?',key:'budget',options:['$0 — need funded options','Under $100/mo','$100-$300/mo','Over $300/mo','Have GI Bill or financial aid']},
       {q:'Are you currently working?',key:'employed',options:['Yes — full time','Yes — part time','No — looking for work','No — staying home']},
@@ -160,7 +162,7 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
   if (mission === 'housing') {
     return [
       {q:'What type of housing help do you need?',key:'need_type',options:['Looking to rent','Emergency shelter — tonight','Have Section 8 voucher','Facing eviction — need help now','Transitional housing','Help with deposit','Sober living','Other']},
-      {q:'What is your ZIP code?',key:'zip',type:'text'},
+      ...(zipQ ? [zipQ] : []),
       {q:'How urgent is your housing need?',key:'urgency',options:['Tonight or tomorrow','Within 1 week','Within 1 month','Within 3 months','Planning ahead']},
       {q:'Approximate monthly income?',key:'income',options:['$0 — no income','Under $1,000/mo','$1,000-$2,000/mo','$2,000-$3,500/mo','Over $3,500/mo']},
       {q:'Are you a veteran?',key:'is_veteran',options:['Yes','No']},
@@ -173,7 +175,7 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
   if (mission === 'business') {
     return [
       {q:'What type of business do you run?',key:'biz_type',options:['Restaurant / Food','Retail','Healthcare','Construction','Cleaning','Transportation','Tech','Education','Beauty / Wellness','Other']},
-      {q:'What is your ZIP code?',key:'zip',type:'text'},
+      ...(zipQ ? [zipQ] : []),
       {q:'What type of worker do you need?',key:'worker_type',type:'text'},
       {q:'How many workers?',key:'count',options:['1','2-3','4-10','10+','Ongoing staffing']},
       {q:'Pay rate offering?',key:'pay_rate',options:['Minimum wage','$16-20/hr','$20-25/hr','$25-35/hr','Over $35/hr','Salary','Commission']},
@@ -189,7 +191,7 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
       {q:'Are you active military or a veteran?',key:'military',options:['Yes — Active Duty','Yes — Veteran','Yes — Military Family','No — Civilian']},
       {q:'What type of vehicle?',key:'vehicle_type',options:['Sedan / Car','SUV / Crossover','Truck','Minivan','Electric Vehicle','Motorcycle','Commercial','Not sure']},
       {q:'New or used?',key:'new_or_used',options:['New','Used','Either — best deal','Certified Pre-Owned']},
-      {q:'What is your ZIP code?',key:'zip',type:'text'},
+      ...(zipQ ? [zipQ] : []),
       {q:'Budget?',key:'budget',options:['Under $15K','$15K-$25K','$25K-$40K','$40K-$60K','Over $60K','Under $300/mo','$300-$500/mo','Over $500/mo']},
       {q:'Credit score?',key:'credit',options:['Excellent 720+','Good 680-719','Fair 620-679','Poor below 620','No credit','Not sure']},
       {q:'How soon to buy?',key:'timeline',options:['This week','This month','Within 3 months','Just researching']},
@@ -202,7 +204,7 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
   if (mission === 'debt') {
     return [
       {q:'What type of financial help?',key:'help_type',options:['Credit card debt','Medical bills','Student loans','Tax / IRS issues','Mortgage relief','Bankruptcy consult','Veteran tax breaks','Full review']},
-      {q:'What is your ZIP code?',key:'zip',type:'text'},
+      ...(zipQ ? [zipQ] : []),
       {q:'Total approximate debt?',key:'total_debt',options:['Under $5K','$5K-$15K','$15K-$30K','$30K-$60K','Over $60K','Not sure']},
       {q:'Monthly income?',key:'income',options:['Under $1,500','$1,500-$3,000','$3,000-$5,000','Over $5,000','No income']},
       {q:'Are you a veteran?',key:'is_veteran',options:['Yes','No']},
@@ -215,7 +217,7 @@ const getQuestions = (mission: string, answers: Record<string,string>, userPhone
   if (mission === 'chores') {
     return [
       {q:'What type of help do you need?',key:'service',options:['House cleaning','Lawn mowing','Laundry','Grocery / errands','Meal prep','Window washing','Organization','Moving help','Pool cleaning','Multiple']},
-      {q:'What is your ZIP code?',key:'zip',type:'text'},
+      ...(zipQ ? [zipQ] : []),
       {q:'How often?',key:'frequency',options:['One-time','Weekly','Bi-weekly','Monthly','As needed']},
       {q:'Budget per visit?',key:'budget',options:['Under $50','$50-$100','$100-$200','$200-$400','Open']},
       {q:'Any preferences or special instructions?',key:'narrative',type:'textarea'},
@@ -296,6 +298,7 @@ export default function Dashboard(){
   const [uname, setUname] = useState<string>('')
   const [userPhone, setUserPhone] = useState<string>('')
   const [userEmail, setUserEmail] = useState<string>('')
+  const [userZip, setUserZip] = useState<string>('')
   const [credits, setCredits] = useState<number>(0)
   const [buyLoading, setBuyLoading] = useState<number|null>(null)
   const [buyError, setBuyError] = useState<string>('')
@@ -358,6 +361,7 @@ export default function Dashboard(){
     setTimeout(()=>{setGlowing(true); setTimeout(()=>setGlowing(false),3000)},500)
     setUserPhone(localStorage.getItem('wb_phone')||'')
     setUserEmail(localStorage.getItem('wb_email')||'')
+    setUserZip(localStorage.getItem('wb_zip')||'')
     initApp(token)
   })();
   },[])
@@ -390,7 +394,7 @@ export default function Dashboard(){
     const m = MISSIONS.find(x=>x.id===id)
     if(!m)return
     setMission(id);setQi(0);setAns({});setDone(false);setShowContactOptions(false)
-    const qs = getQuestions(id, {}, userPhone, userEmail)
+    const qs = getQuestions(id, {}, userPhone, userEmail, userZip)
     setQuestions(qs)
     const q0 = qs[0]
     setMsgs([
@@ -408,7 +412,7 @@ export default function Dashboard(){
     setMsgs(m=>[...m,{r:'u',c:value}])
 
     // Conditional routing
-    let newQuestions = getQuestions(mission||'', na, userPhone, userEmail)
+    let newQuestions = getQuestions(mission||'', na, userPhone, userEmail, userZip)
     setQuestions(newQuestions)
 
     const ni = qi+1

@@ -33,6 +33,9 @@ export default function Login() {
       if (data.token) {
         localStorage.setItem('wb_token', data.token)
         localStorage.setItem('wb_name', data.name||email.split('@')[0])
+        localStorage.setItem('wb_email', email)
+        if(data.zip_code) localStorage.setItem('wb_zip', data.zip_code)
+        if(data.phone) localStorage.setItem('wb_phone', data.phone)
         const onboardingDone = localStorage.getItem('wb_onboarding_done')
         router.push(onboardingDone ? '/dashboard' : '/onboarding')
       } else {
