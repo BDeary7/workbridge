@@ -200,6 +200,19 @@ def init_db():
             updated_at TEXT
         )""")
         cur.execute("""
+        CREATE TABLE IF NOT EXISTS employers (
+            id SERIAL PRIMARY KEY,
+            business_name TEXT,
+            contact_name TEXT,
+            phone TEXT NOT NULL,
+            email TEXT,
+            zip_code TEXT,
+            category TEXT,
+            sms_opt_in BOOLEAN DEFAULT TRUE,
+            registered_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')),
+            status TEXT DEFAULT 'active'
+        )""")
+        cur.execute("""
         CREATE TABLE IF NOT EXISTS ged_scores (
             id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
@@ -730,7 +743,8 @@ async def login(req: LoginRequest):
     conn.execute("UPDATE users SET token=%s WHERE id=%s",(token,u["id"]))
     conn.commit(); conn.close()
     return {"token":token,"name":u["first_name"],"credits":u["credits"],
-            "language":u["language"],"zip_code":u["zip_code"],"state":u["state"]}
+            "language":u["language"],"zip_code":u["zip_code"],"state":u["state"],
+            "phone":u["phone"]}
 
 @app.get("/auth/me")
 async def me(user=Depends(get_user)):
@@ -875,6 +889,22 @@ async def inbound_webhook(request: Request):
         (from_number, from_number.replace("+1",""))
     ).fetchone()
 
+    # ── EMPLOYER REGISTRATION via HIRE keyword ──
+    EMPLOYER_TRIGGERS = ["HIRE","HIRING","EMPLOYER","BUSINESS"]
+    if body_upper in EMPLOYER_TRIGGERS:
+        conn2 = get_db()
+        ph2 = "%s" if is_pg() else "?"
+        existing_emp = conn2.execute(f"SELECT id FROM employers WHERE phone={ph2}", (from_number,)).fetchone()
+        if not existing_emp:
+            conn2.execute(
+                f"INSERT INTO employers (phone, business_name, registered_at) VALUES ({ph2},{ph2},{ph2})",
+                (from_number, "Pending", datetime.utcnow().isoformat()))
+            conn2.commit()
+        conn2.close()
+        resp = MessagingResponse()
+        resp.message("Welcome to WorkBridge! You are now registered as an employer. Job seekers in your area will be connected to you. Reply STOP to opt out. To update your business info visit workbridgesms.com/employer")
+        return PlainTextResponse(str(resp), media_type="application/xml")
+
     # Check if this is a trigger keyword from unknown number
     is_trigger = body_upper in SMS_TRIGGERS or any(body_upper.startswith(t) for t in SMS_TRIGGERS)
 
@@ -954,6 +984,47 @@ async def inbound_webhook(request: Request):
 
     conn.close()
     return PlainTextResponse(str(MessagingResponse()),media_type="application/xml")
+
+
+
+# ── EMPLOYER REGISTRATION API ──────────────────────────────────────────────
+class EmployerRegisterRequest(BaseModel):
+    business_name: str
+    contact_name: str
+    phone: str
+    email: str = ""
+    zip_code: str = ""
+    category: str = ""
+
+@app.post("/employer/register")
+async def employer_register(req: EmployerRegisterRequest):
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+    existing = conn.execute(f"SELECT id FROM employers WHERE phone={ph}", (normalize_phone(req.phone),)).fetchone()
+    if existing:
+        conn.close()
+        return {"status":"already_registered","message":"This phone is already registered as an employer."}
+    conn.execute(
+        f"""INSERT INTO employers (business_name, contact_name, phone, email, zip_code, category, registered_at)
+            VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph})""",
+        (req.business_name, req.contact_name, normalize_phone(req.phone), req.email, req.zip_code, req.category, datetime.utcnow().isoformat()))
+    conn.commit()
+    conn.close()
+    # Send welcome SMS
+    welcome = f"Welcome to WorkBridge, {req.contact_name}! Your business '{req.business_name}' is now registered. Job seekers near {req.zip_code or 'your area'} will be connected to you. Reply STOP to opt out."
+    await send_sms(normalize_phone(req.phone), welcome)
+    return {"status":"registered","message":f"Welcome {req.contact_name}! {req.business_name} is now registered."}
+
+@app.get("/employer/list")
+async def employer_list(zip_code: str = "", category: str = "", user=Depends(get_user)):
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+    if zip_code:
+        employers = conn.execute(f"SELECT * FROM employers WHERE zip_code={ph} AND status='active' AND sms_opt_in=TRUE", (zip_code,)).fetchall()
+    else:
+        employers = conn.execute("SELECT * FROM employers WHERE status='active' AND sms_opt_in=TRUE").fetchall()
+    conn.close()
+    return {"employers":[dict(e) for e in employers],"total":len(employers)}
 
 @app.get("/sms/history")
 async def sms_history(limit: int=50, user=Depends(get_user)):
