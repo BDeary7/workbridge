@@ -325,6 +325,7 @@ export default function Dashboard(){
   const [gedAnswers, setGedAnswers] = useState<Record<number,string>>({})
   const [gedQi, setGedQi] = useState<number>(0)
   const [gedResults, setGedResults] = useState<any>(null)
+  const [gedProgress, setGedProgress] = useState<any>(null)
   const [gedLoading, setGedLoading] = useState<boolean>(false)
   const ref = useRef<HTMLDivElement>(null)
   const tok = () => typeof window !== 'undefined' ? localStorage.getItem('wb_token') : null
@@ -450,7 +451,7 @@ export default function Dashboard(){
         setTimeout(()=>{
           if (directMission === 'education') {
             setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your profile is saved.\n\n🎓 Before I build your study plan, let me see where you stand. Coach Ray uses a baseline GED Mock Test to find your exact weak spots — no wasted study time.\n\n📝 4 Subjects · 10 Questions Each · Scored Instantly\n\nWhich subject do you want to test FIRST?`}])
-            setGedMode(true); setGedSubject('')
+            setGedMode(true); setGedSubject(''); loadGedProgress()
           } else if (directMission === 'debt') {
             setMsgs(m=>[...m,{r:'a',c:`Perfect ${uname}! Your profile is saved.\n\n💳 I am pulling debt relief resources for ${directAnswers.state||'your state'} right now:\n\n🏛️ IRS Fresh Start — tax debt reduction\n📋 NFCC certified counselors — FREE in your area\n⚖️ Debt Management Plans — lower interest rates\n\nWhat type of debt is most urgent — credit cards, medical, tax, student loans, or collections? I will draft your hardship letter and find counselors near you.`}])
           } else if (directMission === 'housing') {
@@ -616,6 +617,18 @@ export default function Dashboard(){
     {id:'science', label:'🔬 Science', desc:'Biology, Chemistry, Physics'},
     {id:'social_studies', label:'🌎 Social Studies', desc:'History, Civics, Economics'},
   ]
+
+  const loadGedProgress = async()=>{
+    try {
+      const t = tok()
+      if(!t) return
+      const res = await fetch(`${API}/coach/ged-progress`,{headers:{Authorization:`Bearer ${t}`}})
+      const data = await res.json()
+      if(data.progress && Object.keys(data.progress).length > 0){
+        setGedProgress(data)
+      }
+    } catch{}
+  }
 
   const startGedTest = async(subject:string)=>{
     setGedLoading(true)
@@ -937,7 +950,18 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
                 {gedMode&&!gedResults&&gedQuestions.length===0&&(
                   <div style={{padding:'16px',background:'rgba(245,158,11,.08)',border:'1px solid rgba(245,158,11,.3)',borderRadius:14,margin:'8px 0'}}>
                     <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>🎓 GED Baseline Mock Test</div>
-                    <div style={{fontSize:13,color:'rgba(240,244,248,.7)',marginBottom:16}}>Pick a subject to start your 10-question mock test. Coach Ray will score it and build your study plan.</div>
+                    {gedProgress&&gedProgress.progress&&Object.keys(gedProgress.progress).length>0&&(
+                      <div style={{marginBottom:14,padding:12,background:'rgba(255,255,255,.04)',borderRadius:10}}>
+                        <div style={{fontSize:13,fontWeight:700,color:'#F59E0B',marginBottom:8}}>📊 Your Progress ({gedProgress.subjects_passed}/4 subjects passed)</div>
+                        {Object.entries(gedProgress.progress).map(([sub,data]:any)=>(
+                          <div key={sub} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',fontSize:13}}>
+                            <span>{sub==='rla'?'Language Arts':sub==='social_studies'?'Social Studies':sub.charAt(0).toUpperCase()+sub.slice(1)}</span>
+                            <span style={{color:data.passed?'#10B981':'#F59E0B',fontWeight:700}}>{data.latest_score}% {data.passed?'✅':'⚠️'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{fontSize:13,color:'rgba(240,244,248,.7)',marginBottom:16}}>{gedProgress&&Object.keys(gedProgress.progress||{}).length>0?'Pick a subject to test or retry:':'Pick a subject to start your 10-question mock test. Coach Ray will score it and build your study plan.'}</div>
                     <div style={{display:'flex',flexDirection:'column',gap:8}}>
                       {GED_SUBJECTS.map(s=>(
                         <button key={s.id} onClick={()=>startGedTest(s.id)}
