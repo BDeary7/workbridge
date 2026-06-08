@@ -326,6 +326,8 @@ export default function Dashboard(){
   const [gedQi, setGedQi] = useState<number>(0)
   const [gedResults, setGedResults] = useState<any>(null)
   const [gedProgress, setGedProgress] = useState<any>(null)
+  const [searchZip, setSearchZip] = useState<string>('')
+  const [searchZipSaved, setSearchZipSaved] = useState(false)
   const [gedLoading, setGedLoading] = useState<boolean>(false)
   const ref = useRef<HTMLDivElement>(null)
   const tok = () => typeof window !== 'undefined' ? localStorage.getItem('wb_token') : null
@@ -947,6 +949,22 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
                 ))}
 
                 {/* GED TEST UI */}
+                {/* ZIP Override */}
+                <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:8,padding:'8px 12px',background:'rgba(255,255,255,.03)',borderRadius:10}}>
+                  <span style={{fontSize:12,color:'rgba(240,244,248,.5)'}}>📍 Search area:</span>
+                  <input placeholder="ZIP code" value={searchZip}
+                    onChange={e=>{setSearchZip(e.target.value);setSearchZipSaved(false)}}
+                    style={{padding:'6px 10px',borderRadius:8,border:'1px solid rgba(255,255,255,.1)',background:'rgba(255,255,255,.05)',color:'#F0F4F8',fontSize:13,width:80}}/>
+                  <button onClick={async()=>{
+                    if(!searchZip||searchZip.length<5)return
+                    try{
+                      await fetch(`${API}/profile/search-zip`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${tok()}`},body:JSON.stringify({search_zip:searchZip})})
+                      setSearchZipSaved(true)
+                    }catch{}
+                  }} style={{padding:'6px 12px',borderRadius:8,background:searchZipSaved?'rgba(16,185,129,.2)':'rgba(245,158,11,.15)',border:'1px solid '+(searchZipSaved?'rgba(16,185,129,.3)':'rgba(245,158,11,.3)'),color:searchZipSaved?'#10B981':'#F59E0B',fontSize:12,cursor:'pointer'}}>
+                    {searchZipSaved?'✓ Saved':'Update'}
+                  </button>
+                </div>
                 {gedMode&&!gedResults&&gedQuestions.length===0&&(
                   <div style={{padding:'16px',background:'rgba(245,158,11,.08)',border:'1px solid rgba(245,158,11,.3)',borderRadius:14,margin:'8px 0'}}>
                     <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>🎓 GED Baseline Mock Test</div>
