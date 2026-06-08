@@ -119,6 +119,7 @@ def init_db():
             skills TEXT DEFAULT '',
             target_job TEXT DEFAULT '',
             availability TEXT DEFAULT '',
+            search_zip TEXT DEFAULT '',
             profile_json TEXT DEFAULT '{}',
             created_at TEXT DEFAULT (to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))
         )""")
@@ -425,11 +426,14 @@ async def web_search(query: str) -> str:
     except Exception as e: return f"Search unavailable: {str(e)}"
 
 def build_user_context(user: dict) -> str:
+    home_zip = user.get('zip_code','')
+    search_zip = user.get('search_zip','') or home_zip
     return f"""
 === USER PROFILE (PRE-LOADED — NEVER ASK FOR THIS) ===
 Full Name: {user.get('first_name','')} {user.get('last_name','')}
 Phone: {user.get('phone','')}
-Location: {user.get('zip_code','')}, {user.get('state','')}
+Home Location: {home_zip}, {user.get('state','')}
+Current Search Area: {search_zip} (use THIS ZIP for all searches)
 Language: {user.get('language','en')}
 Skills: {user.get('skills','')}
 Target Job: {user.get('target_job','')}
@@ -618,7 +622,7 @@ async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> d
     msg_lower = message.lower()
     job   = user.get("target_job","") or ""
     state = user.get("state","") or ""
-    zp    = user.get("zip_code","") or ""
+    zp    = user.get("search_zip","") or user.get("zip_code","") or ""
     lang  = user.get("language","en") or "en"
 
     # Detect if user is asking a question (for tutor mode)
@@ -973,7 +977,26 @@ async def inbound_webhook(request: Request):
         (from_number, from_number.replace("+1",""))
     ).fetchone()
 
-    # ── EMPLOYER REGISTRATION via HIRE keyword ──
+    
+
+# ── SEARCH ZIP OVERRIDE ──────────────────────────────────────────────────────
+class SearchZipRequest(BaseModel):
+    search_zip: str
+
+@app.post("/profile/search-zip")
+async def update_search_zip(req: SearchZipRequest, user=Depends(get_user)):
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+    try:
+        conn.execute(f"ALTER TABLE users ADD COLUMN search_zip TEXT DEFAULT ''")
+        conn.commit()
+    except: pass
+    conn.execute(f"UPDATE users SET search_zip={ph} WHERE id={ph}", (req.search_zip, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"status":"ok","search_zip":req.search_zip,"message":f"Search area updated to {req.search_zip}"}
+
+# ── EMPLOYER REGISTRATION via HIRE keyword ──
     EMPLOYER_TRIGGERS = ["HIRE","HIRING","EMPLOYER","BUSINESS"]
     if body_upper in EMPLOYER_TRIGGERS:
         conn2 = get_db()
