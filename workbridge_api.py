@@ -1133,6 +1133,71 @@ async def employer_list(zip_code: str = "", category: str = "", user=Depends(get
     conn.close()
     return {"employers":[dict(e) for e in employers],"total":len(employers)}
 
+
+
+# ── EMPLOYER DASHBOARD ──────────────────────────────────────────────────────
+@app.get("/employer/candidates")
+async def get_candidates(user=Depends(get_user)):
+    """Get all job seeker candidates visible to this employer"""
+    conn = get_db()
+    try:
+        candidates = conn.execute("""
+            SELECT id,first_name,last_name,phone,email,skills,target_job,zip_code,availability,language,
+            CASE WHEN id IN (SELECT user_id FROM conversations WHERE contact_name IS NOT NULL LIMIT 1) THEN 1 ELSE 0 END as contacted,
+            CASE WHEN id IN (SELECT user_id FROM appointments WHERE status='completed' LIMIT 1) THEN 1 ELSE 0 END as hired
+            FROM users WHERE id != ? LIMIT 500
+        """, (user["id"],)).fetchall()
+        conn.close()
+        return {"candidates": [dict(c) for c in candidates]}
+    except Exception as e:
+        conn.close()
+        return {"candidates":[],"error":str(e)}
+
+@app.post("/employer/message-candidate")
+async def message_candidate(req: dict, user=Depends(get_user)):
+    """Employer sends SMS directly to a job seeker candidate"""
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+    try:
+        candidate_id = req.get("candidate_id")
+        message = req.get("message")
+        
+        candidate = conn.execute(f"SELECT phone FROM users WHERE id={ph}", (candidate_id,)).fetchone()
+        if not candidate:
+            return {"error":"Candidate not found"}
+        
+        # Send the SMS
+        await send_sms(candidate["phone"], f"🔔 {user.get('first_name','Employer')}: {message}")
+        
+        # Log the contact
+        conn.execute(f"""
+            INSERT INTO conversations (user_id, contact_name, contact_phone, status, last_message, last_message_at)
+            VALUES ({ph},{ph},{ph},'contacted',{ph},{ph})
+        """, (candidate_id, user.get('first_name','Employer'), user.get('phone',''), message, datetime.utcnow().isoformat()))
+        conn.commit()
+        conn.close()
+        
+        return {"status":"sent","message":"SMS sent to candidate"}
+    except Exception as e:
+        conn.close()
+        return {"error":str(e)}
+
+@app.post("/employer/mark-hired")
+async def mark_hired(req: dict, user=Depends(get_user)):
+    """Mark a candidate as hired"""
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+    try:
+        candidate_id = req.get("candidate_id")
+        conn.execute(f"INSERT INTO appointments (user_id,business_name,appt_datetime,status) VALUES ({ph},{ph},{ph},'completed')",
+            (candidate_id, user.get('first_name',''), datetime.utcnow().isoformat()))
+        conn.commit()
+        conn.close()
+        return {"status":"ok"}
+    except Exception as e:
+        conn.close()
+        return {"error":str(e)}
+
 @app.get("/sms/history")
 async def sms_history(limit: int=50, user=Depends(get_user)):
     conn = get_db()
