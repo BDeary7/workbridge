@@ -14,7 +14,6 @@ export default function EmployerDashboard() {
   const [filterSkill,setFilterSkill]=useState('')
   const [filterZip,setFilterZip]=useState('')
   const [stats,setStats]=useState({total:0,contacted:0,hired:0})
-
   const tok=()=>typeof window!=='undefined'?localStorage.getItem('wb_token'):null
 
   useEffect(()=>{
@@ -64,8 +63,6 @@ export default function EmployerDashboard() {
         <p style={{color:'rgba(240,244,248,.5)',fontSize:14,marginBottom:20}}>
           Access pre-qualified candidates ready to work. Filter by skills, location, and availability.
         </p>
-
-        {/* Stats */}
         <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
           {[{label:'Total Candidates',val:stats.total,color:A},{label:'Contacted',val:stats.contacted,color:'#3B82F6'},{label:'Hired',val:stats.hired,color:G}].map((s,i)=>(
             <div key={i} style={{flex:1,minWidth:120,padding:'16px',background:'rgba(255,255,255,.04)',borderRadius:12,border:`1px solid ${s.color}30`}}>
@@ -74,18 +71,15 @@ export default function EmployerDashboard() {
             </div>
           ))}
         </div>
-
-        {/* Filters */}
         <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
           <input placeholder="Filter by skill or job type..." value={filterSkill} onChange={e=>setFilterSkill(e.target.value)}
             style={{flex:1,minWidth:200,padding:'10px 14px',borderRadius:10,border:'1px solid rgba(255,255,255,.12)',background:'rgba(255,255,255,.05)',color:W,fontSize:14}}/>
           <input placeholder="ZIP code" value={filterZip} onChange={e=>setFilterZip(e.target.value)}
             style={{width:100,padding:'10px 14px',borderRadius:10,border:'1px solid rgba(255,255,255,.12)',background:'rgba(255,255,255,.05)',color:W,fontSize:14}}/>
         </div>
-
         {loading?<div style={{textAlign:'center',padding:40,color:'rgba(240,244,248,.4)'}}>Loading candidates...</div>:(
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {filtered.length===0&&<div style={{textAlign:'center',padding:40,color:'rgba(240,244,248,.4)'}}>No candidates found. Adjust your filters.</div>}
+            {filtered.length===0&&<div style={{textAlign:'center',padding:40,color:'rgba(240,244,248,.4)'}}>No candidates found. Adjust your filters or check back soon.</div>}
             {filtered.map((c:any)=>(
               <div key={c.id} style={{padding:'14px 16px',background:selected?.id===c.id?'rgba(245,158,11,.08)':'rgba(255,255,255,.03)',
                 border:`1px solid ${selected?.id===c.id?'rgba(245,158,11,.3)':'rgba(255,255,255,.08)'}`,borderRadius:12,cursor:'pointer'}}
@@ -108,10 +102,8 @@ export default function EmployerDashboard() {
             ))}
           </div>
         )}
-
-        {/* Message Panel */}
         {selected&&(
-          <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#111827',borderTop:'1px solid rgba(245,158,11,.3)',padding:'16px 20px'}}>
+          <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#111827',borderTop:'1px solid rgba(245,158,11,.3)',padding:'16px 20px',zIndex:50}}>
             <div style={{maxWidth:900,margin:'0 auto'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                 <span style={{fontWeight:700,fontSize:14}}>Message {selected.first_name||'Candidate'}</span>
