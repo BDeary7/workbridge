@@ -793,12 +793,51 @@ async def generate_document(doc_type: str, user: dict) -> Optional[dict]:
             return {"title":titles[doc_type],"content":res.json()["content"][0]["text"]}
     except: return None
 
+# ── YTEL SMS CONFIG ──────────────────────────────────────────────────────────
+YTEL_EMAIL = os.getenv("YTEL_EMAIL", "")
+YTEL_PASSWORD = os.getenv("YTEL_PASSWORD", "")
+YTEL_FROM = os.getenv("YTEL_FROM", "")
+YTEL_TOKEN = {"access_token": "", "expires_at": 0}
+
+async def get_ytel_token() -> str:
+    import time
+    if YTEL_TOKEN["access_token"] and time.time() < YTEL_TOKEN["expires_at"]:
+        return YTEL_TOKEN["access_token"]
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post("https://api.ytel.com/auth/v3/token",
+                json={"captcha":"","grantType":"resource_owner_credentials","password":YTEL_PASSWORD,"refreshToken":"","username":YTEL_EMAIL,"refreshDurationMinutes":120},
+                headers={"Content-Type":"application/json","Accept":"application/json"})
+            data = r.json()
+            YTEL_TOKEN["access_token"] = data.get("accessToken","")
+            YTEL_TOKEN["expires_at"] = time.time() + 6600
+            return YTEL_TOKEN["access_token"]
+    except Exception as e:
+        print(f"Ytel auth error: {e}")
+        return ""
+
 async def send_sms(to: str, body: str) -> Optional[str]:
+    if YTEL_EMAIL and YTEL_PASSWORD and YTEL_FROM:
+        try:
+            token = await get_ytel_token()
+            if token:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    r = await client.post("https://api.ytel.com/v4/messaging/sms/send",
+                        json={"to":to,"from":YTEL_FROM,"body":body},
+                        headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"})
+                    data = r.json()
+                    if data.get("status"):
+                        print(f"Ytel SMS sent to {to}")
+                        return data.get("payload",{}).get("messageId","ytel-sent")
+                    else:
+                        print(f"Ytel SMS error: {data}")
+        except Exception as e:
+            print(f"Ytel SMS error: {e}")
     if not twilio_client or not TWILIO_FROM: return "mock-sid"
     try:
         msg = twilio_client.messages.create(body=body, from_=TWILIO_FROM, to=to)
         return msg.sid
-    except Exception as e: print(f"SMS error: {e}"); return None
+    except Exception as e: print(f"Twilio SMS error: {e}"); return None
 
 def normalize_phone(phone: str) -> str:
     digits = "".join(c for c in phone if c.isdigit())
