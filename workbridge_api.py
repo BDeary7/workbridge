@@ -630,10 +630,10 @@ async def call_coach_ray(user: dict, message: str, mission: str = "intake") -> d
 
     # Mission-aware live search — fires on first message of each mission
     try:
-        # TUTOR MODE: If user asks ANY question during education, search for the answer
-        if is_question and (mission == "education" or "ged" in msg_lower or "test" in msg_lower or "study" in msg_lower or "tutor" in msg_lower):
-            q = message[:80]  # Use their actual question as the search query
-            search_ctx += "\n[EDUCATIONAL ANSWER]: " + (await web_search(q)) + "\n"
+        # TUTOR MODE: If user asks ANY question in ANY mission, search for the answer
+        if is_question:
+            q = message[:80]
+            search_ctx += "\n[EDUCATIONAL ANSWER — USER ASKED A DIRECT QUESTION. YOU MUST ANSWER IT THOROUGHLY]: " + (await web_search(q)) + "\n"
 
         if mission == "education" or any(k in msg_lower for k in ["ged","diploma","trade school","college","program","certif"]):
             q = f"free GED programs adult education near {zp} {state} 2025"
