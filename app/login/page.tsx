@@ -172,7 +172,16 @@ export default function Login() {
                 By signing up you agree to our{' '}
                 <a href='/terms' target='_blank' style={{color:amber,textDecoration:'none',fontWeight:700}}>Terms of Service</a>
                 {' '}and{' '}
-                <a href='/terms' target='_blank' style={{color:amber,textDecoration:'none',fontWeight:700}}>Privacy Policy</a>
+                <a href='/privacy' target='_blank' style={{color:amber,textDecoration:'none',fontWeight:700}}>Privacy Policy</a>
+                <div style={{marginTop:10,padding:'10px 12px',background:'rgba(255,255,255,.03)',borderRadius:8,fontSize:11,color:'rgba(240,244,248,.5)',lineHeight:1.5}}>
+                  <strong style={{color:'rgba(240,244,248,.7)',fontSize:12}}>SMS Disclosure</strong><br/>
+                  By opting in, you consent to receive SMS messages from WorkBridge SMS LLC including job alerts, coaching messages, appointment reminders, and service updates.<br/><br/>
+                  <strong>Message frequency:</strong> Message frequency varies based on your activity and interactions with Coach Ray. You may receive up to 20 messages per day during active coaching sessions.<br/><br/>
+                  <strong>Message and data rates may apply.</strong> Your carrier may charge standard messaging rates. WorkBridge is not responsible for carrier fees.<br/><br/>
+                  <strong>To stop:</strong> Reply <strong>STOP</strong> to any message to unsubscribe from all WorkBridge SMS communications at any time. You will receive a confirmation message.<br/><br/>
+                  <strong>For help:</strong> Reply <strong>HELP</strong> to any message for support, or contact us at support@workbridgesms.com or (949) 463-5289.<br/><br/>
+                  <strong>Third-party data sharing:</strong> By consenting above, you agree that your profile information (name, skills, location, job preferences, and mission responses) may be shared with employers, workforce organizations, and service providers for the purpose of connecting you to relevant opportunities. You may opt out of third-party sharing at any time by contacting support@workbridgesms.com.
+                </div>
               </p>
             </div>
           )}
