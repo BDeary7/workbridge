@@ -347,8 +347,8 @@ async def lifespan(app: FastAPI):
     init_db(); seed_founder(); yield
 
 app = FastAPI(title="WorkBridge API v3.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["https://workbridgesms.com","https://www.workbridgesms.com","http://localhost:3000"],
-    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+    allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 
 def get_user(request: Request):
