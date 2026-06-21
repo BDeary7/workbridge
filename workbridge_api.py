@@ -2538,17 +2538,95 @@ GED_QUESTIONS = {
 
 @app.get("/coach/ged-test/{subject}")
 async def get_ged_test(subject: str, user=Depends(get_user)):
-    """Return GED mock test questions for a subject"""
+    """Generate FRESH GED mock test questions using AI — never the same test twice"""
     subject = subject.lower().replace("-","_")
-    if subject not in GED_QUESTIONS:
-        raise HTTPException(400, f"Subject must be: math, rla, science, social_studies")
-    questions = GED_QUESTIONS[subject]
-    # Return questions without answers
-    return {
-        "subject": subject,
-        "total": len(questions),
-        "questions": [{"index":i,"q":q["q"],"options":q["options"]} for i,q in enumerate(questions)]
+    valid = ["math","rla","science","social_studies"]
+    if subject not in valid:
+        raise HTTPException(400, f"Subject must be: {', '.join(valid)}")
+
+    # Get previous weak concepts to focus on
+    conn = get_db()
+    ph = "%s" if is_pg() else "?"
+    prev = conn.execute(f"SELECT weak_concepts,score_pct FROM ged_scores WHERE user_id={ph} AND subject={ph} ORDER BY taken_at DESC LIMIT 1",
+        (user["id"],subject)).fetchone()
+    conn.close()
+    weak_focus = ""
+    if prev and prev["weak_concepts"]:
+        weak_focus = f"The student previously scored {prev['score_pct']}% and was weak in: {prev['weak_concepts']}. Include 3-4 questions targeting those weak areas."
+
+    content_areas = {
+        "math": "Quantitative Reasoning (percents, ratios, proportions), Algebraic Reasoning (linear equations, inequalities, functions, slope), Data Analysis (charts, graphs, mean/median/mode, probability), Geometry (area, perimeter, volume, Pythagorean theorem, coordinate plane)",
+        "rla": "Reading Comprehension (main idea, supporting details, inference, tone, purpose), Language Arts (grammar, sentence structure, punctuation, capitalization, subject-verb agreement), Writing (transition words, paragraph organization, evidence-based reasoning, persuasive writing)",
+        "science": "Life Science (cells, genetics, evolution, ecosystems, human body), Physical Science (motion, forces, energy, waves, chemical reactions), Earth and Space Science (plate tectonics, weather, climate, solar system, natural resources)",
+        "social_studies": "Civics and Government (Constitution, branches of government, Bill of Rights, elections, Supreme Court), US History (Colonial era, Revolution, Civil War, Reconstruction, civil rights, Cold War), Economics (supply/demand, GDP, inflation, fiscal/monetary policy, trade), Geography (maps, regions, migration, resources, globalization)"
     }
+
+    if not ANTHROPIC_KEY:
+        # Fallback to hardcoded if no API key
+        if subject in GED_QUESTIONS:
+            questions = GED_QUESTIONS[subject]
+            return {"subject":subject,"total":len(questions),"questions":[{"index":i,"q":q["q"],"options":q["options"]} for i,q in enumerate(questions)]}
+        return {"error":"No API key configured"}
+
+    prompt = f"""Generate exactly 10 multiple-choice GED practice questions for the {subject.replace('_',' ').upper()} section.
+
+Content areas to cover: {content_areas.get(subject,'')}
+{weak_focus}
+
+CRITICAL RULES:
+- Questions MUST match real GED difficulty level (not trivial, not impossible)
+- Each question has exactly 4 options labeled A, B, C, D
+- Mix difficulty: 3 easy, 4 medium, 3 hard
+- Include the concept/topic each question tests
+- For MATH: include word problems, not just raw calculations
+- For RLA: include short reading passages (2-3 sentences) with comprehension questions
+- For SCIENCE: include data interpretation (describe a simple chart or experiment)
+- NEVER repeat questions from previous tests
+
+Respond ONLY with valid JSON array, no other text. Format:
+[{{"q":"question text","options":["A","B","C","D"],"answer":"correct option text","concept":"Topic Name"}}]"""
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            res = await client.post("https://api.anthropic.com/v1/messages",
+                headers={"x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
+                json={"model":"claude-sonnet-4-20250514","max_tokens":3000,
+                      "messages":[{"role":"user","content":prompt}]})
+            raw = res.json()["content"][0]["text"].strip()
+            # Clean JSON if wrapped in markdown
+            if raw.startswith("```"):
+                raw = raw.split("\n",1)[1] if "\n" in raw else raw[3:]
+                raw = raw.rsplit("```",1)[0]
+            raw = raw.strip()
+            questions = json.loads(raw)
+
+            # Store answers server-side for scoring (keyed by user+subject+timestamp)
+            answer_key = {str(i): q["answer"] for i,q in enumerate(questions)}
+            conn2 = get_db()
+            try:
+                conn2.execute(f"CREATE TABLE IF NOT EXISTS ged_active_tests (user_id INTEGER, subject TEXT, answer_key TEXT, created_at TEXT, PRIMARY KEY (user_id, subject))")
+                conn2.commit()
+            except: pass
+            try:
+                conn2.execute(f"DELETE FROM ged_active_tests WHERE user_id={ph} AND subject={ph}", (user["id"],subject))
+                conn2.commit()
+            except: pass
+            conn2.execute(f"INSERT INTO ged_active_tests (user_id,subject,answer_key,created_at) VALUES ({ph},{ph},{ph},{ph})",
+                (user["id"],subject,json.dumps({"answers":answer_key,"questions":questions}),datetime.utcnow().isoformat()))
+            conn2.commit()
+            conn2.close()
+
+            return {
+                "subject": subject,
+                "total": len(questions),
+                "questions": [{"index":i,"q":q["q"],"options":q["options"]} for i,q in enumerate(questions)]
+            }
+    except Exception as e:
+        # Fallback to hardcoded if AI generation fails
+        if subject in GED_QUESTIONS:
+            questions = GED_QUESTIONS[subject]
+            return {"subject":subject,"total":len(questions),"questions":[{"index":i,"q":q["q"],"options":q["options"]} for i,q in enumerate(questions)]}
+        raise HTTPException(500, f"Could not generate test: {str(e)[:80]}")
 
 @app.post("/coach/ged-score")
 async def score_ged_test(request: Request, user=Depends(get_user)):
@@ -2560,7 +2638,19 @@ async def score_ged_test(request: Request, user=Depends(get_user)):
     if subject not in GED_QUESTIONS:
         raise HTTPException(400, "Invalid subject")
 
-    questions = GED_QUESTIONS[subject]
+    # Try to get dynamically generated answer key first
+    conn_score = get_db()
+    ph_s = "%s" if is_pg() else "?"
+    active = conn_score.execute(f"SELECT answer_key FROM ged_active_tests WHERE user_id={ph_s} AND subject={ph_s}",
+        (user["id"],subject)).fetchone()
+    conn_score.close()
+
+    if active and active["answer_key"]:
+        stored = json.loads(active["answer_key"])
+        questions = stored.get("questions", GED_QUESTIONS.get(subject,[]))
+    else:
+        questions = GED_QUESTIONS[subject]
+
     results = []
     weak_concepts = []
     score = 0
