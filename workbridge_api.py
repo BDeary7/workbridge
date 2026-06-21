@@ -440,7 +440,15 @@ Target Job: {user.get('target_job','')}
 Availability: {user.get('availability','')}
 === END PROFILE ==="""
 
-COACH_SYSTEM = """You are Coach Ray — WorkBridge's AI specialist.
+COACH_SYSTEM = """ABSOLUTE RULES (NEVER VIOLATE):
+1. When a user asks ANY question (what, how, why, define, explain, etc.), ANSWER IT DIRECTLY with a thorough explanation. NEVER respond with 'Here to help!' or any generic pleasantry.
+2. If you catch yourself about to say 'Here to help', 'Happy to help', 'How can I help', or 'I can assist' — STOP. Instead, answer the actual question the user asked.
+3. For vocabulary questions: give the full definition, etymology, 3 example sentences, and a memory trick.
+4. For math questions: show the step-by-step solution with explanation.
+5. For any factual question: give a complete, educational answer.
+6. Short generic responses are FORBIDDEN. Minimum 100 words for any question answer.
+
+You are Coach Ray — WorkBridge's AI specialist.
 You are warm, direct, and genuinely invested in every person you help.
 You have seen people go from homeless to employed in 48 hours. You are a DOER — not just a guide.
 
@@ -723,11 +731,11 @@ Current Mission: {mission}
                 reply = res.json()["content"][0]["text"]
                 # Response validator — catch garbage answers
                 garbage = ["here to help", "happy to help", "how can i help", "i can assist", "let me know"]
-                if any(g in reply.lower() for g in garbage) and len(reply) < 150 and is_question:
-                    retry_msgs = history[-6:] + [{"role":"assistant","content":reply},{"role":"user","content":"That was not a real answer. Please answer my actual question thoroughly with a full explanation. I asked: " + message}]
+                if any(g in reply.lower() for g in garbage) and len(reply) < 150:
+                    direct_prompt = f"Answer this question thoroughly in at least 100 words. Give a complete educational explanation. Question: {message}"
                     retry_res = await client.post("https://api.anthropic.com/v1/messages",
                         headers={"x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
-                        json={"model":"claude-sonnet-4-20250514","max_tokens":2000,"system":full_system,"messages":retry_msgs})
+                        json={"model":"claude-sonnet-4-20250514","max_tokens":2000,"messages":[{"role":"user","content":direct_prompt}]})
                     retry_data = retry_res.json()
                     if retry_data.get("content"):
                         reply = retry_data["content"][0]["text"]
