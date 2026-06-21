@@ -343,7 +343,7 @@ export default function Dashboard(){
         if(Array.isArray(parsed) && parsed.length > 0){
           setActiveMissions(parsed)
         }
-      }catch{}
+      }catch(e){console.error('ZIP update error:',e);alert('Error updating ZIP: '+e.message)}
     } else {
       // Fetch from API for existing users who predate onboarding
       try{
@@ -358,7 +358,7 @@ export default function Dashboard(){
             localStorage.setItem('wb_missions', JSON.stringify(d.missions))
           }
         }
-      }catch{}
+      }catch(e){console.error('ZIP update error:',e);alert('Error updating ZIP: '+e.message)}
     }
     // Trigger glow on load
     setTimeout(()=>{setGlowing(true); setTimeout(()=>setGlowing(false),3000)},500)
@@ -389,7 +389,7 @@ export default function Dashboard(){
       if(em){setUserEmail(em);localStorage.setItem('wb_email',em)}
       setHist((await h.json()).history||[])
       setAppts((await a.json()).appointments||[])
-    }catch{}
+    }catch(e){console.error('ZIP update error:',e);alert('Error updating ZIP: '+e.message)}
     setWaking(false)
   }
 
@@ -582,7 +582,7 @@ export default function Dashboard(){
           timestamp: new Date().toISOString()
         })
       })
-    }catch{}
+    }catch(e){console.error('ZIP update error:',e);alert('Error updating ZIP: '+e.message)}
   }
 
   const buyCredits = async(amount:number)=>{
@@ -629,7 +629,7 @@ export default function Dashboard(){
       if(data.progress && Object.keys(data.progress).length > 0){
         setGedProgress(data)
       }
-    } catch{}
+    } catch(e){console.error('ZIP update error:',e);alert('Error updating ZIP: '+e.message)}
   }
 
   const startGedTest = async(subject:string)=>{

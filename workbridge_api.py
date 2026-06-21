@@ -718,7 +718,7 @@ Current Mission: {mission}
                 res = await client.post(
                     "https://api.anthropic.com/v1/messages",
                     headers={"x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
-                    json={"model":"claude-sonnet-4-20250514","max_tokens":1000,"system":full_system,"messages":history}
+                    json={"model":"claude-sonnet-4-20250514","max_tokens":2000,"system":full_system,"messages":history}
                 )
                 reply = res.json()["content"][0]["text"]
                 # Response validator — catch garbage answers
@@ -727,7 +727,7 @@ Current Mission: {mission}
                     retry_msgs = history[-6:] + [{"role":"assistant","content":reply},{"role":"user","content":"That was not a real answer. Please answer my actual question thoroughly with a full explanation. I asked: " + message}]
                     retry_res = await client.post("https://api.anthropic.com/v1/messages",
                         headers={"x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
-                        json={"model":"claude-sonnet-4-20250514","max_tokens":2000,"system":system_prompt,"messages":retry_msgs})
+                        json={"model":"claude-sonnet-4-20250514","max_tokens":2000,"system":full_system,"messages":retry_msgs})
                     retry_data = retry_res.json()
                     if retry_data.get("content"):
                         reply = retry_data["content"][0]["text"]
