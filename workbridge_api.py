@@ -1037,11 +1037,13 @@ async def update_search_zip(req: SearchZipRequest, user=Depends(get_user)):
     conn = get_db()
     ph = "%s" if is_pg() else "?"
     try:
-        conn.execute(f"ALTER TABLE users ADD COLUMN search_zip TEXT DEFAULT ''")
+        conn.execute(f"UPDATE users SET search_zip={ph} WHERE id={ph}", (req.search_zip, user["id"]))
         conn.commit()
-    except: pass
-    conn.execute(f"UPDATE users SET search_zip={ph} WHERE id={ph}", (req.search_zip, user["id"]))
-    conn.commit()
+    except Exception as e:
+        try: conn.rollback()
+        except: pass
+        conn.close()
+        raise HTTPException(500, f"ZIP update failed: {str(e)[:80]}")
     conn.close()
     return {"status":"ok","search_zip":req.search_zip,"message":f"Search area updated to {req.search_zip}"}
 
