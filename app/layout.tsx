@@ -37,17 +37,17 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         {children}
         <script dangerouslySetInnerHTML={{__html: `
           if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
-              navigator.serviceWorker.register('/sw.js')
-                .then(function(reg) {
-                  console.log('WorkBridge SW registered');
-                  // Request notification permission
-                  if ('Notification' in window && Notification.permission === 'default') {
-                    Notification.requestPermission();
-                  }
-                })
-                .catch(function(err) { console.log('SW error:', err); });
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              registrations.forEach(function(reg) {
+                reg.unregister();
+                console.log('WorkBridge SW unregistered');
+              });
             });
+            if (window.caches) {
+              caches.keys().then(function(names) {
+                names.forEach(function(name) { caches.delete(name); });
+              });
+            }
           }
         `}}/>
       </body>
