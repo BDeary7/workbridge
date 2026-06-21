@@ -788,7 +788,7 @@ Ready to send to businesses in ${allAnswers.zip_code||'your area'}?`
         })
       })
       const d = await res.json()
-      setMsgs(m=>[...m,{r:'a',c:d.reply||'Here to help!'}])
+      setMsgs(m=>[...m,{r:'a',c:d.reply||'Coach Ray is connecting... please try again.'}])
     }catch{setMsgs(m=>[...m,{r:'a',c:'Connection issue — try again!'}])}
     setLoading(false)
   }
