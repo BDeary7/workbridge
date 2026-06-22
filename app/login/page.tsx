@@ -47,12 +47,11 @@ export default function Login() {
 
   const handleSignup = async () => {
     if (!email.trim() || !password.trim() || !name.trim() || !phone.trim()) return
-    if (!optSMS || !optData) { setError('Please accept required terms to continue'); return }
     setLoading(true); setError(''); setSuccess('')
     try {
       const res = await fetch(`${API}/auth/register`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({name, email, phone, password, language:'en', zip_code: zip})
+        body: JSON.stringify({name, email, phone, password, language:'en', zip_code: zip, sms_consent: optSMS, data_consent: optData, partner_consent: optPartners})
       })
       const data = await res.json()
       if (data.token) {
@@ -129,26 +128,29 @@ export default function Login() {
               <div style={{display:'flex',flexDirection:'column',gap:10,padding:'14px',borderRadius:12,background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)'}}>
                 <div style={{fontSize:12,fontWeight:700,color:'#F0F4F8',marginBottom:4,letterSpacing:'0.5px'}}>CONSENT & TERMS</div>
                 {[
-                  [optSMS,setOptSMS,true,'I agree to receive SMS job alerts and notifications from WorkBridge (required)'],
-                  [optData,setOptData,true,'I consent to WorkBridge sharing my profile with employers and service providers for matching (required)'],
-                  [optPartners,setOptPartners,false,'I agree to be contacted by WorkBridge partner companies about relevant services — veterans benefits, home loans, insurance, tax relief (optional)'],
-                ].map(([val,setter,required,label]:any,i)=>(
+                  [optSMS,setOptSMS,'I agree to receive SMS job alerts and notifications from WorkBridge'],
+                  [optData,setOptData,'I consent to WorkBridge sharing my profile with employers and service providers for matching'],
+                  [optPartners,setOptPartners,'I agree to be contacted by WorkBridge partner companies about relevant services — veterans benefits, home loans, insurance, tax relief (optional)'],
+                ].map(([val,setter,label]:any,i)=>(
                   <label key={i} style={{display:'flex',gap:10,alignItems:'flex-start',cursor:'pointer'}}>
                     <input type="checkbox" checked={val} onChange={e=>setter(e.target.checked)}
                       style={{marginTop:3,width:16,height:16,accentColor:amber,flexShrink:0}}/>
                     <span style={{fontSize:12,color:'rgba(240,244,248,0.7)',lineHeight:1.5}}>
-                      {label}{required&&<span style={{color:'#EF4444'}}> *</span>}
+                      {label}
                     </span>
                   </label>
                 ))}
+                <span style={{fontSize:11,color:'rgba(240,244,248,0.45)',marginTop:2}}>
+                  These checkboxes are optional and are not required to create your account. You can update your preferences anytime in account settings.
+                </span>
               </div>
             )}
             {error&&<div style={{color:'#f87171',fontSize:13,padding:'10px 14px',background:'rgba(248,113,113,0.1)',borderRadius:8}}>{error}</div>}
             {success&&<div style={{color:green,fontSize:13,padding:'10px 14px',background:'rgba(16,185,129,0.1)',borderRadius:8}}>{success}</div>}
             <button onClick={tab==='login'?handleLogin:tab==='signup'?handleSignup:handleForgot}
-              disabled={loading||(tab==='signup'&&(!optSMS||!optData))}
+              disabled={loading}
               style={{padding:'15px',borderRadius:12,border:'none',background:`linear-gradient(135deg,${amber},#D97706)`,
-                color:dark,fontWeight:900,fontSize:16,cursor:'pointer',opacity:(loading||(tab==='signup'&&(!optSMS||!optData)))?0.5:1,marginTop:4}}>
+                color:dark,fontWeight:900,fontSize:16,cursor:'pointer',opacity:loading?0.5:1,marginTop:4}}>
               {loading?'Please wait...':(tab==='login'?'Log In →':tab==='signup'?'Create Account →':'Send Reset Link →')}
             </button>
           </div>
@@ -180,7 +182,7 @@ export default function Login() {
                   <strong>Message and data rates may apply.</strong> Your carrier may charge standard messaging rates. WorkBridge is not responsible for carrier fees.<br/><br/>
                   <strong>To stop:</strong> Reply <strong>STOP</strong> to any message to unsubscribe from all WorkBridge SMS communications at any time. You will receive a confirmation message.<br/><br/>
                   <strong>For help:</strong> Reply <strong>HELP</strong> to any message for support, or contact us at support@workbridgesms.com or (949) 463-5289.<br/><br/>
-                  <strong>Third-party data sharing:</strong> By consenting above, you agree that your profile information (name, skills, location, job preferences, and mission responses) may be shared with employers, workforce organizations, and service providers for the purpose of connecting you to relevant opportunities. You may opt out of third-party sharing at any time by contacting support@workbridgesms.com.
+                  <strong>Third-party data sharing:</strong> Your mobile phone number and SMS opt-in consent are never shared with or sold to third parties for marketing or promotional purposes. See our Privacy Policy for details on how your profile information is used to connect you with opportunities you direct us to pursue.
                 </div>
               </p>
             </div>
