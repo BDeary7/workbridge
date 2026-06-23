@@ -19,6 +19,7 @@ export default function Login() {
   const [optSMS, setOptSMS] = useState(false)
   const [optData, setOptData] = useState(false)
   const [optPartners, setOptPartners] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
 
   const handleLogin = async () => {
@@ -123,9 +124,15 @@ export default function Login() {
             )}
             <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address" type="email" style={inp}/>
             {tab!=='forgot'&&(
-              <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type="password"
-                onKeyDown={e=>{if(e.key==='Enter'){tab==='login'?handleLogin():handleSignup()}}}
-                style={inp}/>
+              <div style={{position:'relative'}}>
+                <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type={showPassword?'text':'password'}
+                  onKeyDown={e=>{if(e.key==='Enter'){tab==='login'?handleLogin():handleSignup()}}}
+                  style={{...inp,paddingRight:64}}/>
+                <button type="button" onClick={()=>setShowPassword(s=>!s)}
+                  style={{position:'absolute',right:14,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:amber,fontSize:12,fontWeight:700,cursor:'pointer',padding:0}}>
+                  {showPassword?'Hide':'Show'}
+                </button>
+              </div>
             )}
             {tab==='signup'&&(
               <div style={{display:'flex',flexDirection:'column',gap:10,padding:'14px',borderRadius:12,background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)'}}>
