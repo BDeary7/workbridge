@@ -866,12 +866,13 @@ def normalize_phone(phone: str) -> str:
 @app.post("/auth/register")
 async def register(req: RegisterRequest):
     conn = get_db()
-    if conn.execute("SELECT id FROM users WHERE email=%s",(req.email,)).fetchone():
+    ph = "%s" if is_pg() else "?"
+    if conn.execute(f"SELECT id FROM users WHERE email={ph}",(req.email,)).fetchone():
         conn.close(); raise HTTPException(400,"Email already registered")
     token = make_token(req.email)
-    conn.execute("""INSERT INTO users
+    conn.execute(f"""INSERT INTO users
         (first_name,last_name,email,password_hash,phone,zip_code,state,language,credits,token)
-        VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})""",
         (req.first_name,req.last_name,req.email,hash_pw(req.password),
          req.phone,req.zip_code,req.state,req.language,5,token))
     conn.commit(); conn.close()
