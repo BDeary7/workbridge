@@ -49,9 +49,12 @@ export default function Login() {
     if (!email.trim() || !password.trim() || !name.trim() || !phone.trim()) return
     setLoading(true); setError(''); setSuccess('')
     try {
+      const nameParts = name.trim().split(/\s+/)
+      const first_name = nameParts[0] || name
+      const last_name = nameParts.slice(1).join(' ') || '-'
       const res = await fetch(`${API}/auth/register`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({name, email, phone, password, language:'en', zip_code: zip, sms_consent: optSMS, data_consent: optData, partner_consent: optPartners})
+        body: JSON.stringify({first_name, last_name, email, phone, password, language:'en', zip_code: zip, sms_consent: optSMS, data_consent: optData, partner_consent: optPartners})
       })
       const data = await res.json()
       if (data.token) {
