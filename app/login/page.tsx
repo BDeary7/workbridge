@@ -138,9 +138,8 @@ export default function Login() {
               <div style={{display:'flex',flexDirection:'column',gap:10,padding:'14px',borderRadius:12,background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)'}}>
                 <div style={{fontSize:12,fontWeight:700,color:'#F0F4F8',marginBottom:4,letterSpacing:'0.5px'}}>CONSENT & TERMS</div>
                 {[
-                  [optSMS,setOptSMS,'I agree to receive SMS job alerts and notifications from WorkBridge'],
-                  [optData,setOptData,'I consent to WorkBridge sharing my profile with employers and service providers for matching'],
-                  [optPartners,setOptPartners,'I agree to receive SMS messages from Work Bridge SMS LLC regarding my account, services, and support. Message and data rates may apply. Reply STOP to opt out. (optional)'],
+                  [optSMS,setOptSMS,'I agree to receive SMS messages from WorkBridge SMS LLC including job alerts, coaching messages, and service updates. Msg frequency varies based on usage. Msg and data rates may apply. Reply STOP to cancel anytime. Reply HELP for help or contact support@workbridgesms.com / (949) 463-5289. (required)'],
+                  [optData,setOptData,'I consent to WorkBridge using my profile information (name, skills, location, job preferences) to match me with relevant employers and opportunities within the WorkBridge platform. My SMS opt-in consent will not be shared with or sold to third parties. (required)'],
                 ].map(([val,setter,label]:any,i)=>(
                   <label key={i} style={{display:'flex',gap:10,alignItems:'flex-start',cursor:'pointer'}}>
                     <input type="checkbox" checked={val} onChange={e=>setter(e.target.checked)}
@@ -151,7 +150,7 @@ export default function Login() {
                   </label>
                 ))}
                 <span style={{fontSize:11,color:'rgba(240,244,248,0.45)',marginTop:2}}>
-                  These checkboxes are optional and are not required to create your account. You can update your preferences anytime in account settings.
+                  The first two checkboxes are required to create your account. Your SMS opt-in consent is never shared with or sold to third parties.
                 </span>
               </div>
             )}
